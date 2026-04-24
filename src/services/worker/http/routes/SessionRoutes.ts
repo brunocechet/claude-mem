@@ -421,6 +421,7 @@ export class SessionRoutes extends BaseRouteHandler {
     // New session endpoints (use contentSessionId)
     app.post('/api/sessions/init', this.handleSessionInitByClaudeId.bind(this));
     app.post('/api/sessions/observations', this.handleObservationsByClaudeId.bind(this));
+    app.post('/api/sessions/observations/batch', this.handleObservationsBatchByClaudeId.bind(this));
     app.post('/api/sessions/summarize', this.handleSummarizeByClaudeId.bind(this));
     app.post('/api/sessions/complete', this.handleCompleteByClaudeId.bind(this));
     app.get('/api/sessions/status', this.handleStatusByClaudeId.bind(this));
@@ -694,6 +695,100 @@ export class SessionRoutes extends BaseRouteHandler {
     this.eventBroadcaster.broadcastObservationQueued(sessionDbId);
 
     res.json({ status: 'queued' });
+  });
+
+  /**
+   * Queue multiple observations by contentSessionId (outbox drain uses this)
+   * POST /api/sessions/observations/batch
+   * Body: { contentSessionId, platformSource?, observations: Array<{tool_name, tool_input, tool_response, cwd, agentId?, agentType?}> }
+   */
+  private handleObservationsBatchByClaudeId = this.wrapHandler((req: Request, res: Response): void => {
+    const { contentSessionId, observations } = req.body;
+    const platformSource = normalizePlatformSource(req.body.platformSource);
+
+    if (!contentSessionId) {
+      return this.badRequest(res, 'Missing contentSessionId');
+    }
+
+    if (!Array.isArray(observations) || observations.length === 0) {
+      return this.badRequest(res, 'observations must be a non-empty array');
+    }
+
+    const settings = SettingsDefaultsManager.loadFromFile(USER_SETTINGS_PATH);
+    const skipTools = new Set(settings.CLAUDE_MEM_SKIP_TOOLS.split(',').map((t: string) => t.trim()).filter(Boolean));
+
+    const store = this.dbManager.getSessionStore();
+
+    let sessionDbId: number;
+    let promptNumber: number;
+    try {
+      const firstCwd = observations[0]?.cwd;
+      const project = typeof firstCwd === 'string' && firstCwd.trim()
+        ? getProjectContext(firstCwd).primary
+        : '';
+      sessionDbId = store.createSDKSession(contentSessionId, project, '', undefined, platformSource);
+      promptNumber = store.getPromptNumberFromUserPrompts(contentSessionId);
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      logger.error('HTTP', 'Batch observation session lookup failed', { contentSessionId }, normalizedError);
+      res.json({ stored: false, reason: normalizedError.message });
+      return;
+    }
+
+    const userPrompt = PrivacyCheckValidator.checkUserPromptPrivacy(
+      store, contentSessionId, promptNumber, 'observation', sessionDbId, {}
+    );
+    if (!userPrompt) {
+      res.json({ results: observations.map(() => ({ status: 'skipped', reason: 'private' })) });
+      return;
+    }
+
+    const fileOperationTools = new Set(['Edit', 'Write', 'Read', 'NotebookEdit']);
+    let queued = 0;
+    const results: Array<{ status: string; reason?: string }> = [];
+
+    for (const obs of observations) {
+      const { tool_name, tool_input, tool_response, cwd, agentId, agentType } = obs;
+
+      if (skipTools.has(tool_name)) {
+        results.push({ status: 'skipped', reason: 'tool_excluded' });
+        continue;
+      }
+
+      if (fileOperationTools.has(tool_name) && tool_input) {
+        const filePath = tool_input.file_path || tool_input.notebook_path;
+        if (filePath && filePath.includes('session-memory')) {
+          results.push({ status: 'skipped', reason: 'session_memory_meta' });
+          continue;
+        }
+      }
+
+      const cleanedToolInput = tool_input !== undefined
+        ? stripMemoryTagsFromJson(JSON.stringify(tool_input))
+        : '{}';
+      const cleanedToolResponse = tool_response !== undefined
+        ? stripMemoryTagsFromJson(JSON.stringify(tool_response))
+        : '{}';
+
+      this.sessionManager.queueObservation(sessionDbId, {
+        tool_name,
+        tool_input: cleanedToolInput,
+        tool_response: cleanedToolResponse,
+        prompt_number: promptNumber,
+        cwd: typeof cwd === 'string' ? cwd : '',
+        agentId: typeof agentId === 'string' ? agentId : undefined,
+        agentType: typeof agentType === 'string' ? agentType : undefined,
+      });
+      queued++;
+      results.push({ status: 'queued' });
+    }
+
+    if (queued > 0) {
+      this.ensureGeneratorRunning(sessionDbId, 'batch_observation');
+      this.eventBroadcaster.broadcastObservationQueued(sessionDbId);
+    }
+
+    res.json({ queued, results });
   });
 
   /**

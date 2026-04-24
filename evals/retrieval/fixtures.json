@@ -1,0 +1,66 @@
+{
+  "version": "1",
+  "description": "Hand-labeled retrieval quality test cases. expected_ids are SQLite observation IDs from a frozen corpus. Run `node evals/retrieval/run.mjs --capture` to discover IDs for new queries.",
+  "queries": [
+    {
+      "id": "q001",
+      "query": "bearer token authentication middleware",
+      "expected_ids": [],
+      "description": "Auth middleware implementation obs"
+    },
+    {
+      "id": "q002",
+      "query": "SQLite schema migration observation columns",
+      "expected_ids": [],
+      "description": "DB migration work obs"
+    },
+    {
+      "id": "q003",
+      "query": "PostToolUse hook outbox retry",
+      "expected_ids": [],
+      "description": "Observation outbox design obs"
+    },
+    {
+      "id": "q004",
+      "query": "context budget token truncation",
+      "expected_ids": [],
+      "description": "Context budget enforcement obs"
+    },
+    {
+      "id": "q005",
+      "query": "tree-sitter grammar parse fallback",
+      "expected_ids": [],
+      "description": "Parser fallback implementation obs"
+    },
+    {
+      "id": "q006",
+      "query": "SSE broadcaster viewer stream",
+      "expected_ids": [],
+      "description": "Viewer SSE stream obs"
+    },
+    {
+      "id": "q007",
+      "query": "smart-install stamp deduplication session start",
+      "expected_ids": [],
+      "description": "Install stamp optimization obs"
+    },
+    {
+      "id": "q008",
+      "query": "staleness flag stale observation verified_at",
+      "expected_ids": [],
+      "description": "Staleness TTL implementation obs"
+    },
+    {
+      "id": "q009",
+      "query": "worker HTTP port 37777 health check",
+      "expected_ids": [],
+      "description": "Worker service startup obs"
+    },
+    {
+      "id": "q010",
+      "query": "project context excluded tracking filter",
+      "expected_ids": [],
+      "description": "Project exclusion logic obs"
+    }
+  ]
+}

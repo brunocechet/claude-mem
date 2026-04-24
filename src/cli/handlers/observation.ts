@@ -4,14 +4,70 @@
  * Extracted from save-hook.ts - sends tool usage to worker for storage.
  */
 
+import { appendFileSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js';
 import { ensureWorkerRunning, workerHttpRequest } from '../../shared/worker-utils.js';
 import { logger } from '../../utils/logger.js';
 import { HOOK_EXIT_CODES } from '../../shared/hook-constants.js';
 import { isProjectExcluded } from '../../utils/project-filter.js';
 import { SettingsDefaultsManager } from '../../shared/SettingsDefaultsManager.js';
-import { USER_SETTINGS_PATH } from '../../shared/paths.js';
+import { USER_SETTINGS_PATH, OUTBOX_PATH } from '../../shared/paths.js';
 import { normalizePlatformSource } from '../../shared/platform-source.js';
+
+function writeToOutbox(requestBody: string): void {
+  try {
+    appendFileSync(OUTBOX_PATH, requestBody + '\n', 'utf-8');
+  } catch (err) {
+    logger.warn('HOOK', 'Failed to write to outbox', { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function drainOutbox(): Promise<void> {
+  if (!existsSync(OUTBOX_PATH)) return;
+
+  let lines: string[];
+  try {
+    lines = readFileSync(OUTBOX_PATH, 'utf-8').split('\n').filter(Boolean);
+  } catch {
+    return;
+  }
+
+  if (lines.length === 0) return;
+
+  // Group by contentSessionId + platformSource for batch POST
+  const bySession = new Map<string, { contentSessionId: string; platformSource: string; observations: object[] }>();
+  for (const line of lines) {
+    try {
+      const entry = JSON.parse(line);
+      const key = `${entry.contentSessionId}|${entry.platformSource ?? ''}`;
+      if (!bySession.has(key)) {
+        bySession.set(key, { contentSessionId: entry.contentSessionId, platformSource: entry.platformSource ?? '', observations: [] });
+      }
+      const { tool_name, tool_input, tool_response, cwd, agentId, agentType } = entry;
+      bySession.get(key)!.observations.push({ tool_name, tool_input, tool_response, cwd, agentId, agentType });
+    } catch {
+      // skip malformed lines
+    }
+  }
+
+  let anyFailed = false;
+  for (const batch of bySession.values()) {
+    try {
+      const response = await workerHttpRequest('/api/sessions/observations/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(batch)
+      });
+      if (!response.ok) anyFailed = true;
+    } catch {
+      anyFailed = true;
+    }
+  }
+
+  if (!anyFailed) {
+    try { writeFileSync(OUTBOX_PATH, '', 'utf-8'); } catch { /* ignore */ }
+  }
+}
 
 async function sendObservationToWorker(requestBody: string, toolName: string): Promise<void> {
   const response = await workerHttpRequest('/api/sessions/observations', {
@@ -21,7 +77,8 @@ async function sendObservationToWorker(requestBody: string, toolName: string): P
   });
 
   if (!response.ok) {
-    logger.warn('HOOK', 'Observation storage failed, skipping', { status: response.status, toolName });
+    logger.warn('HOOK', 'Observation storage failed, spooling to outbox', { status: response.status, toolName });
+    writeToOutbox(requestBody);
     return;
   }
 
@@ -36,6 +93,9 @@ export const observationHandler: EventHandler = {
       // Worker not available - skip observation gracefully
       return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
     }
+
+    // Drain any observations spooled to outbox while worker was down (fire-and-forget)
+    drainOutbox().catch(() => { /* ignore drain errors */ });
 
     const { sessionId, cwd, toolName, toolInput, toolResponse } = input;
     const platformSource = normalizePlatformSource(input.platform);
@@ -76,8 +136,9 @@ export const observationHandler: EventHandler = {
     try {
       await sendObservationToWorker(requestBody, toolName);
     } catch (error) {
-      // Worker unreachable — skip observation gracefully
-      logger.warn('HOOK', 'Observation fetch error, skipping', { error: error instanceof Error ? error.message : String(error) });
+      // Worker unreachable — spool to outbox for drain on next healthy turn
+      writeToOutbox(requestBody);
+      logger.warn('HOOK', 'Observation fetch error, spooled to outbox', { error: error instanceof Error ? error.message : String(error) });
       return { continue: true, suppressOutput: true, exitCode: HOOK_EXIT_CODES.SUCCESS };
     }
 

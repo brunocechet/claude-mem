@@ -848,6 +848,57 @@ function buildSymbols(matches: RawMatch[], lines: string[], language: string): {
   return { symbols: symbols.filter(s => !nested.has(s)), imports };
 }
 
+// --- Grep fallback (no tree-sitter) ---
+
+const GREP_PATTERNS: Array<{ re: RegExp; kind: CodeSymbol['kind'] | 'import' }> = [
+  { re: /^(?:export\s+)?(?:async\s+)?function\s+(\w+)/, kind: 'function' },
+  { re: /^(?:export\s+default\s+)?(?:abstract\s+)?class\s+(\w+)/, kind: 'class' },
+  { re: /^(?:export\s+)?interface\s+(\w+)/, kind: 'interface' },
+  { re: /^(?:export\s+)?type\s+(\w+)\s*=/, kind: 'type' },
+  { re: /^(?:export\s+)?enum\s+(\w+)/, kind: 'enum' },
+  { re: /^def\s+(\w+)/, kind: 'function' },
+  { re: /^class\s+(\w+)/, kind: 'class' },
+  { re: /^func\s+(?:\([^)]*\)\s+)?(\w+)/, kind: 'function' },
+  { re: /^type\s+(\w+)\s+struct/, kind: 'struct' },
+  { re: /^type\s+(\w+)\s+interface/, kind: 'interface' },
+  { re: /^(?:pub\s+)?fn\s+(\w+)/, kind: 'function' },
+  { re: /^(?:pub\s+)?struct\s+(\w+)/, kind: 'struct' },
+  { re: /^(?:pub\s+)?enum\s+(\w+)/, kind: 'enum' },
+  { re: /^(?:pub\s+)?trait\s+(\w+)/, kind: 'trait' },
+  { re: /^(?:import|from|use|require)\s/, kind: 'import' },
+];
+
+function grepFallback(content: string, filePath: string): { symbols: CodeSymbol[]; imports: string[] } {
+  const lines = content.split('\n');
+  const symbols: CodeSymbol[] = [];
+  const imports: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line.startsWith('//') || line.startsWith('#') || line.startsWith('*')) continue;
+
+    for (const { re, kind } of GREP_PATTERNS) {
+      const m = line.match(re);
+      if (!m) continue;
+      if (kind === 'import') {
+        imports.push(line);
+      } else {
+        symbols.push({
+          name: m[1] || 'anonymous',
+          kind,
+          signature: line.slice(0, 200),
+          lineStart: i,
+          lineEnd: i,
+          exported: line.startsWith('export') || line.startsWith('pub '),
+        });
+      }
+      break;
+    }
+  }
+
+  return { symbols, imports };
+}
+
 // --- Main parse functions ---
 
 export function parseFile(content: string, filePath: string, projectRoot?: string): FoldedFile {
@@ -857,8 +908,10 @@ export function parseFile(content: string, filePath: string, projectRoot?: strin
 
   const grammarPath = resolveGrammarPathWithFallback(language, projectRoot);
   if (!grammarPath) {
+    const fallback = grepFallback(content, filePath);
     return {
-      filePath, language, symbols: [], imports: [],
+      filePath, language,
+      symbols: fallback.symbols, imports: fallback.imports,
       totalLines: lines.length, foldedTokenEstimate: 50,
     };
   }
@@ -915,11 +968,12 @@ export function parseFilesBatch(
   for (const [language, groupFiles] of languageGroups) {
     const grammarPath = resolveGrammarPathWithFallback(language, projectRoot);
     if (!grammarPath) {
-      // No grammar — return empty results for these files
       for (const file of groupFiles) {
         const lines = file.content.split("\n");
+        const fallback = grepFallback(file.content, file.relativePath);
         results.set(file.relativePath, {
-          filePath: file.relativePath, language, symbols: [], imports: [],
+          filePath: file.relativePath, language,
+          symbols: fallback.symbols, imports: fallback.imports,
           totalLines: lines.length, foldedTokenEstimate: 50,
         });
       }
