@@ -41,6 +41,10 @@ export interface ContextConfig {
   fullObservationField: 'narrative' | 'facts';
   showLastSummary: boolean;
   showLastMessage: boolean;
+
+  // Budget & staleness (0 = disabled)
+  contextBudgetTokens: number;
+  stalenessCutoffEpoch: number;
 }
 
 /**

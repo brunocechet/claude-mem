@@ -46,6 +46,9 @@ export interface SettingsDefaults {
   CLAUDE_MEM_CONTEXT_FULL_COUNT: string;
   CLAUDE_MEM_CONTEXT_FULL_FIELD: string;
   CLAUDE_MEM_CONTEXT_SESSION_COUNT: string;
+  // Budget & Staleness
+  CLAUDE_MEM_CONTEXT_BUDGET: string;
+  CLAUDE_MEM_CONTEXT_STALENESS_DAYS: string;
   // Feature Toggles
   CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: string;
   CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: string;
@@ -123,6 +126,9 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_CONTEXT_FULL_COUNT: '0',
     CLAUDE_MEM_CONTEXT_FULL_FIELD: 'narrative',
     CLAUDE_MEM_CONTEXT_SESSION_COUNT: '10',
+    // Budget & Staleness (0 = disabled)
+    CLAUDE_MEM_CONTEXT_BUDGET: '2048',
+    CLAUDE_MEM_CONTEXT_STALENESS_DAYS: '7',
     // Feature Toggles
     CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: 'true',
     CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: 'false',

@@ -179,6 +179,16 @@ export async function generateContext(
       forHuman
     );
 
+    // Apply token budget cap (0 = no cap, full mode bypasses)
+    if (config.contextBudgetTokens > 0 && !input?.full) {
+      const charLimit = config.contextBudgetTokens * 4;
+      if (output.length > charLimit) {
+        const cutoff = output.lastIndexOf('\n', charLimit);
+        const truncated = cutoff > 0 ? output.slice(0, cutoff) : output.slice(0, charLimit);
+        return truncated + `\n[context truncated to ${config.contextBudgetTokens}-token budget]`;
+      }
+    }
+
     return output;
   } finally {
     db.close();

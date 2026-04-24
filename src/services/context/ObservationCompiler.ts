@@ -32,6 +32,9 @@ export function queryObservations(
   const typePlaceholders = typeArray.map(() => '?').join(',');
   const conceptArray = Array.from(config.observationConcepts);
   const conceptPlaceholders = conceptArray.map(() => '?').join(',');
+  const stalenessClause = config.stalenessCutoffEpoch > 0
+    ? 'AND o.created_at_epoch > ?'
+    : '';
 
   return db.db.prepare(`
     SELECT
@@ -57,6 +60,7 @@ export function queryObservations(
         SELECT 1 FROM json_each(o.concepts)
         WHERE value IN (${conceptPlaceholders})
       )
+      ${stalenessClause}
     ORDER BY o.created_at_epoch DESC
     LIMIT ?
   `).all(
@@ -64,6 +68,7 @@ export function queryObservations(
     project,
     ...typeArray,
     ...conceptArray,
+    ...(config.stalenessCutoffEpoch > 0 ? [config.stalenessCutoffEpoch] : []),
     config.totalObservationCount
   ) as Observation[];
 }
@@ -111,9 +116,10 @@ export function queryObservationsMulti(
   const typePlaceholders = typeArray.map(() => '?').join(',');
   const conceptArray = Array.from(config.observationConcepts);
   const conceptPlaceholders = conceptArray.map(() => '?').join(',');
-
-  // Build IN clause for projects
   const projectPlaceholders = projects.map(() => '?').join(',');
+  const stalenessClause = config.stalenessCutoffEpoch > 0
+    ? 'AND o.created_at_epoch > ?'
+    : '';
 
   return db.db.prepare(`
     SELECT
@@ -141,6 +147,7 @@ export function queryObservationsMulti(
         SELECT 1 FROM json_each(o.concepts)
         WHERE value IN (${conceptPlaceholders})
       )
+      ${stalenessClause}
     ORDER BY o.created_at_epoch DESC
     LIMIT ?
   `).all(
@@ -148,6 +155,7 @@ export function queryObservationsMulti(
     ...projects,
     ...typeArray,
     ...conceptArray,
+    ...(config.stalenessCutoffEpoch > 0 ? [config.stalenessCutoffEpoch] : []),
     config.totalObservationCount
   ) as Observation[];
 }
