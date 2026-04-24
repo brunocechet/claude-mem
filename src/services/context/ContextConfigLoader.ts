@@ -37,6 +37,7 @@ export function loadContextConfig(): ContextConfig {
     showLastSummary: settings.CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY === 'true',
     showLastMessage: settings.CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE === 'true',
     contextBudgetTokens: parseInt(settings.CLAUDE_MEM_CONTEXT_BUDGET, 10) || 0,
+    includeStale: false,
     stalenessCutoffEpoch: (() => {
       const days = parseInt(settings.CLAUDE_MEM_CONTEXT_STALENESS_DAYS, 10);
       return days > 0 ? Date.now() - days * 24 * 60 * 60 * 1000 : 0;

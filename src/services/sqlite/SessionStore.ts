@@ -68,6 +68,7 @@ export class SessionStore {
     this.addObservationModelColumns();
     this.ensureMergedIntoProjectColumns();
     this.addObservationSubagentColumns();
+    this.addObservationStalenessColumns();
   }
 
   /**
@@ -1030,6 +1031,35 @@ export class SessionStore {
 
     if (!applied) {
       this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(27, new Date().toISOString());
+    }
+  }
+
+  /**
+   * Add staleness tracking columns to observations (migration 28).
+   *
+   * verified_at: epoch ms of the last time this observation was confirmed
+   *   to still match the referenced code. NULL means unverified.
+   * stale: 1 when the observation is known to be outdated (e.g. the
+   *   referenced file changed). Hidden from default context; still
+   *   searchable via mem-search.
+   */
+  private addObservationStalenessColumns(): void {
+    const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(28) as SchemaVersion | undefined;
+
+    const cols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
+    const hasVerifiedAt = cols.some(col => col.name === 'verified_at');
+    const hasStale = cols.some(col => col.name === 'stale');
+
+    if (!hasVerifiedAt) {
+      this.db.run('ALTER TABLE observations ADD COLUMN verified_at INTEGER DEFAULT NULL');
+    }
+    if (!hasStale) {
+      this.db.run('ALTER TABLE observations ADD COLUMN stale INTEGER DEFAULT 0');
+    }
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_observations_stale ON observations(stale)');
+
+    if (!applied) {
+      this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(28, new Date().toISOString());
     }
   }
 

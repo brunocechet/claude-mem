@@ -142,10 +142,11 @@ export async function generateContext(
   const projects = input?.projects?.length ? input.projects : context.allProjects;
   const project = projects[projects.length - 1] ?? context.primary;
 
-  // Full mode: fetch all observations but keep normal rendering (level 1 summaries)
+  // Full mode: fetch all observations (including stale) but keep normal rendering
   if (input?.full) {
     config.totalObservationCount = 999999;
     config.sessionCount = 999999;
+    config.includeStale = true;
   }
 
   // Initialize database

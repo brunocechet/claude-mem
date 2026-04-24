@@ -45,6 +45,8 @@ export interface ContextConfig {
   // Budget & staleness (0 = disabled)
   contextBudgetTokens: number;
   stalenessCutoffEpoch: number;
+  // When true (full mode / explicit recall), include stale observations
+  includeStale: boolean;
 }
 
 /**
@@ -65,6 +67,8 @@ export interface Observation {
   discovery_tokens: number | null;
   created_at: string;
   created_at_epoch: number;
+  verified_at: number | null;
+  stale: number;
   /** Project this observation belongs to (for multi-project queries) */
   project?: string;
 }

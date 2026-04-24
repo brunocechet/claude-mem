@@ -35,6 +35,7 @@ export function queryObservations(
   const stalenessClause = config.stalenessCutoffEpoch > 0
     ? 'AND o.created_at_epoch > ?'
     : '';
+  const staleClause = config.includeStale ? '' : 'AND (o.stale IS NULL OR o.stale = 0)';
 
   return db.db.prepare(`
     SELECT
@@ -51,7 +52,9 @@ export function queryObservations(
       o.files_modified,
       o.discovery_tokens,
       o.created_at,
-      o.created_at_epoch
+      o.created_at_epoch,
+      o.verified_at,
+      COALESCE(o.stale, 0) as stale
     FROM observations o
     LEFT JOIN sdk_sessions s ON o.memory_session_id = s.memory_session_id
     WHERE (o.project = ? OR o.merged_into_project = ?)
@@ -61,6 +64,7 @@ export function queryObservations(
         WHERE value IN (${conceptPlaceholders})
       )
       ${stalenessClause}
+      ${staleClause}
     ORDER BY o.created_at_epoch DESC
     LIMIT ?
   `).all(
@@ -120,6 +124,7 @@ export function queryObservationsMulti(
   const stalenessClause = config.stalenessCutoffEpoch > 0
     ? 'AND o.created_at_epoch > ?'
     : '';
+  const staleClause = config.includeStale ? '' : 'AND (o.stale IS NULL OR o.stale = 0)';
 
   return db.db.prepare(`
     SELECT
@@ -137,6 +142,8 @@ export function queryObservationsMulti(
       o.discovery_tokens,
       o.created_at,
       o.created_at_epoch,
+      o.verified_at,
+      COALESCE(o.stale, 0) as stale,
       o.project
     FROM observations o
     LEFT JOIN sdk_sessions s ON o.memory_session_id = s.memory_session_id
@@ -148,6 +155,7 @@ export function queryObservationsMulti(
         WHERE value IN (${conceptPlaceholders})
       )
       ${stalenessClause}
+      ${staleClause}
     ORDER BY o.created_at_epoch DESC
     LIMIT ?
   `).all(
