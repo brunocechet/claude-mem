@@ -43,7 +43,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "*",
+        "matcher": "Edit|Write|NotebookEdit|Bash|TodoWrite|Task",
         "hooks": [
           {
             "type": "command",
