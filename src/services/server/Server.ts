@@ -155,8 +155,13 @@ export class Server {
   private setupMiddleware(): void {
     const middlewares = createMiddleware(summarizeRequestBody);
     middlewares.forEach(mw => this.app.use(mw));
-    // Require bearer token on all /api/* endpoints. Exempt: /health, /, /stream, static assets.
-    this.app.use('/api', requireBearerToken);
+    // Require bearer token on data /api/* endpoints.
+    // Exempt: liveness probes (health, version, readiness) and admin routes (already localhost-only).
+    const PUBLIC_API = new Set(['/health', '/version', '/readiness', '/instructions']);
+    this.app.use('/api', (req, res, next) => {
+      if (PUBLIC_API.has(req.path) || req.path.startsWith('/admin/')) return next();
+      requireBearerToken(req, res, next);
+    });
   }
 
   /**
