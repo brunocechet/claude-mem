@@ -9,11 +9,12 @@
  * for both cache and marketplace installs), falling back to script location
  * and legacy paths.
  */
-import { existsSync, readFileSync, writeFileSync, openSync, readSync, closeSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, openSync, readSync, closeSync, chmodSync, mkdirSync } from 'fs';
 import { execSync, spawnSync } from 'child_process';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
+import { randomBytes } from 'crypto';
 
 // Early exit if plugin is disabled in Claude Code settings (#781)
 function isPluginDisabledInClaudeSettings() {
@@ -627,6 +628,17 @@ try {
       // Worker wasn't running or already stopped - that's fine
     }
     // Worker will be started fresh by next hook in chain (worker-service.cjs start)
+  }
+
+  // Step 3.5: Provision bearer auth token (once per machine, mode 0600)
+  const authTokenPath = join(homedir(), '.claude-mem', 'auth.token');
+  if (!existsSync(authTokenPath)) {
+    const dataDir = join(homedir(), '.claude-mem');
+    if (!existsSync(dataDir)) {
+      mkdirSync(dataDir, { recursive: true });
+    }
+    writeFileSync(authTokenPath, randomBytes(32).toString('hex'), { encoding: 'utf-8' });
+    chmodSync(authTokenPath, 0o600);
   }
 
   // Step 4: Install CLI to PATH

@@ -10,6 +10,7 @@ import cors from 'cors';
 import path from 'path';
 import { getPackageRoot } from '../../../shared/paths.js';
 import { logger } from '../../../utils/logger.js';
+import { readAuthToken } from '../../../shared/auth-token.js';
 
 /**
  * Create all middleware for the worker service
@@ -38,7 +39,7 @@ export function createMiddleware(
       }
     },
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'X-Requested-With'],
+    allowedHeaders: ['Content-Type', 'X-Requested-With', 'Authorization'],
     credentials: false
   }));
 
@@ -136,6 +137,38 @@ export function requireLocalhost(req: Request, res: Response, next: NextFunction
       error: 'Forbidden',
       message: 'Admin endpoints are only accessible from localhost'
     });
+    return;
+  }
+
+  next();
+}
+
+/**
+ * Middleware to require valid bearer token on API endpoints.
+ *
+ * Reads the token provisioned by smart-install.js from ~/.claude-mem/auth.token
+ * (or CLAUDE_MEM_TOKEN env var). If no token file exists yet (e.g. fresh install
+ * that hasn't run Setup), auth is skipped so existing installations continue
+ * working without disruption.
+ *
+ * Exempt paths (/health, /, /stream, static assets) are handled by not
+ * applying this middleware to those routes — see Server.ts.
+ */
+export function requireBearerToken(req: Request, res: Response, next: NextFunction): void {
+  const token = readAuthToken();
+  if (!token) {
+    return next();
+  }
+
+  const authHeader = req.headers['authorization'];
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Unauthorized', message: 'Bearer token required' });
+    return;
+  }
+
+  const provided = authHeader.slice(7);
+  if (provided !== token) {
+    res.status(401).json({ error: 'Unauthorized', message: 'Invalid bearer token' });
     return;
   }
 

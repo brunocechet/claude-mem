@@ -8,6 +8,7 @@
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { readFileSync, existsSync } from 'fs';
+import { readAuthToken } from '../../../../shared/auth-token.js';
 import { logger } from '../../../../utils/logger.js';
 import { getPackageRoot } from '../../../../shared/paths.js';
 import { SSEBroadcaster } from '../../SSEBroadcaster.js';
@@ -66,7 +67,12 @@ export class ViewerRoutes extends BaseRouteHandler {
       throw new Error('Viewer UI not found at any expected location');
     }
 
-    const html = readFileSync(viewerPath, 'utf-8');
+    let html = readFileSync(viewerPath, 'utf-8');
+    const token = readAuthToken();
+    if (token) {
+      const tokenScript = `<script>window.__CLAUDE_MEM_TOKEN__ = '${token}';</script>`;
+      html = html.replace('</head>', `${tokenScript}</head>`);
+    }
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   });

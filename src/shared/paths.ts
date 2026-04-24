@@ -68,6 +68,7 @@ export const TRASH_DIR = join(DATA_DIR, 'trash');
 export const BACKUPS_DIR = join(DATA_DIR, 'backups');
 export const MODES_DIR = join(DATA_DIR, 'modes');
 export const USER_SETTINGS_PATH = join(DATA_DIR, 'settings.json');
+export const AUTH_TOKEN_PATH = join(DATA_DIR, 'auth.token');
 export const DB_PATH = join(DATA_DIR, 'claude-mem.db');
 export const VECTOR_DB_DIR = join(DATA_DIR, 'vector-db');
 

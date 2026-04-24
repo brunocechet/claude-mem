@@ -4,6 +4,7 @@ import { logger } from "../utils/logger.js";
 import { HOOK_TIMEOUTS, getTimeout } from "./hook-constants.js";
 import { SettingsDefaultsManager } from "./SettingsDefaultsManager.js";
 import { MARKETPLACE_ROOT } from "./paths.js";
+import { readAuthToken } from "./auth-token.js";
 
 // Named constants for health checks
 // Allow env var override for users on slow systems (e.g., CLAUDE_MEM_HEALTH_TIMEOUT_MS=10000)
@@ -112,9 +113,17 @@ export function workerHttpRequest(
 
   const url = buildWorkerUrl(apiPath);
   const init: RequestInit = { method };
-  if (options.headers) {
-    init.headers = options.headers;
+
+  // Merge caller headers with auth header (token may be null on unprovisioned installs)
+  const token = readAuthToken();
+  const headers: Record<string, string> = { ...(options.headers ?? {}) };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
   }
+  if (Object.keys(headers).length > 0) {
+    init.headers = headers;
+  }
+
   if (options.body) {
     init.body = options.body;
   }
