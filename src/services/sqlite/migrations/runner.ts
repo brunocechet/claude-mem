@@ -1165,7 +1165,14 @@ export class MigrationRunner {
    */
   private addObservationsUniqueContentHashIndex(): void {
     const applied = this.db.prepare('SELECT version FROM schema_versions WHERE version = ?').get(29) as SchemaVersion | undefined;
-    if (applied) return;
+
+    // Always verify the index physically exists — the schema_version entry can be
+    // present without the index if the table was recreated by a later migration.
+    const indexExists = (this.db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='index' AND name='ux_observations_session_hash'"
+    ).get()) !== null;
+
+    if (applied && indexExists) return;
 
     // Need both columns to exist.
     const obsCols = this.db.query('PRAGMA table_info(observations)').all() as TableColumnInfo[];
@@ -1195,7 +1202,7 @@ export class MigrationRunner {
 
       this.db.prepare('INSERT OR IGNORE INTO schema_versions (version, applied_at) VALUES (?, ?)').run(29, new Date().toISOString());
       this.db.run('COMMIT');
-      logger.debug('DB', 'Added UNIQUE(memory_session_id, content_hash) on observations');
+      logger.debug('DB', 'Ensured UNIQUE(memory_session_id, content_hash) index on observations');
     } catch (error) {
       this.db.run('ROLLBACK');
       if (error instanceof Error) {
