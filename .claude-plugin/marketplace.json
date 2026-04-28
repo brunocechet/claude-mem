@@ -1,10 +1,10 @@
 {
-  "name": "thedotmack",
+  "name": "thedotmack-local",
   "owner": {
-    "name": "Alex Newman"
+    "name": "Alex Newman (local fork — Bruno Cechet)"
   },
   "metadata": {
-    "description": "Plugins by Alex Newman (thedotmack)",
+    "description": "Local fork of claude-mem (wave-3 branch) — pulled on demand, not auto-updated",
     "homepage": "https://github.com/thedotmack/claude-mem"
   },
   "plugins": [

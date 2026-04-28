@@ -1,33 +1,37 @@
 #!/usr/bin/env node
 /**
- * Protected sync-marketplace script
+ * Sync local plugin source → Claude Code's directory-source plugin cache.
  *
- * Prevents accidental rsync overwrite when installed plugin is on beta branch.
- * If on beta, the user should use the UI to update instead.
+ * This repo is registered as a *directory-source* marketplace
+ * (`~/.claude/settings.json` → extraKnownMarketplaces.thedotmack-local), so
+ * Claude Code mirrors the plugin into a versioned cache dir on install/update.
+ * Edits to plugin/* are not visible to running hooks until that cache is
+ * refreshed — `claude plugin update` only refreshes when package.json bumps.
+ *
+ * This script forces a cache refresh without bumping versions: rsyncs the
+ * live plugin/ tree into ~/.claude/plugins/cache/thedotmack-local/claude-mem/<v>/
+ * and triggers a worker restart so the new code is picked up.
+ *
+ * Note: there is intentionally NO marketplace-clone rsync. The old auto-update
+ * incident on 2026-04-25 (CLAUDE.md "Auto-Update Recovery") happened because
+ * the marketplace dir was a github-source clone that the updater pulled from.
+ * Directory-source marketplaces have no clone — the source IS this working tree.
  */
 
 const { execSync } = require('child_process');
-const { existsSync, readFileSync } = require('fs');
+const { existsSync, readFileSync, mkdirSync } = require('fs');
 const path = require('path');
 const os = require('os');
 
-const INSTALLED_PATH = path.join(os.homedir(), '.claude', 'plugins', 'marketplaces', 'thedotmack');
-const CACHE_BASE_PATH = path.join(os.homedir(), '.claude', 'plugins', 'cache', 'thedotmack', 'claude-mem');
-
-function getCurrentBranch() {
-  try {
-    if (!existsSync(path.join(INSTALLED_PATH, '.git'))) {
-      return null;
-    }
-    return execSync('git rev-parse --abbrev-ref HEAD', {
-      cwd: INSTALLED_PATH,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe']
-    }).trim();
-  } catch {
-    return null;
-  }
-}
+const MARKETPLACE_NAME = 'thedotmack-local';
+const CACHE_BASE_PATH = path.join(
+  os.homedir(),
+  '.claude',
+  'plugins',
+  'cache',
+  MARKETPLACE_NAME,
+  'claude-mem'
+);
 
 function getGitignoreExcludes(basePath) {
   const gitignorePath = path.join(basePath, '.gitignore');
@@ -41,23 +45,6 @@ function getGitignoreExcludes(basePath) {
     .join(' ');
 }
 
-const branch = getCurrentBranch();
-const isForce = process.argv.includes('--force');
-
-if (branch && branch !== 'main' && !isForce) {
-  console.log('');
-  console.log('\x1b[33m%s\x1b[0m', `WARNING: Installed plugin is on beta branch: ${branch}`);
-  console.log('\x1b[33m%s\x1b[0m', 'Running rsync would overwrite beta code.');
-  console.log('');
-  console.log('Options:');
-  console.log('  1. Use UI at http://localhost:37777 to update beta');
-  console.log('  2. Switch to stable in UI first, then run sync');
-  console.log('  3. Force rsync: npm run sync-marketplace:force');
-  console.log('');
-  process.exit(1);
-}
-
-// Get version from plugin.json
 function getPluginVersion() {
   try {
     const pluginJsonPath = path.join(__dirname, '..', 'plugin', '.claude-plugin', 'plugin.json');
@@ -69,62 +56,52 @@ function getPluginVersion() {
   }
 }
 
-// Normal rsync for main branch or fresh install
-console.log('Syncing to marketplace...');
+const rootDir = path.join(__dirname, '..');
+const pluginDir = path.join(rootDir, 'plugin');
+const version = getPluginVersion();
+const CACHE_VERSION_PATH = path.join(CACHE_BASE_PATH, version);
+
+if (!existsSync(CACHE_VERSION_PATH)) {
+  mkdirSync(CACHE_VERSION_PATH, { recursive: true });
+}
+
 try {
-  const rootDir = path.join(__dirname, '..');
-  const gitignoreExcludes = getGitignoreExcludes(rootDir);
-
-  execSync(
-    `rsync -av --delete --exclude=.git --exclude=bun.lock --exclude=package-lock.json ${gitignoreExcludes} ./ ~/.claude/plugins/marketplaces/thedotmack/`,
-    { stdio: 'inherit' }
-  );
-
-  console.log('Running bun install in marketplace...');
-  execSync(
-    'cd ~/.claude/plugins/marketplaces/thedotmack/ && bun install',
-    { stdio: 'inherit' }
-  );
-
-  // Sync to cache folder with version
-  const version = getPluginVersion();
-  const CACHE_VERSION_PATH = path.join(CACHE_BASE_PATH, version);
-
-  const pluginDir = path.join(rootDir, 'plugin');
   const pluginGitignoreExcludes = getGitignoreExcludes(pluginDir);
 
-  console.log(`Syncing to cache folder (version ${version})...`);
+  console.log(`Syncing plugin/ → cache (version ${version})...`);
   execSync(
     `rsync -av --delete --exclude=.git ${pluginGitignoreExcludes} plugin/ "${CACHE_VERSION_PATH}/"`,
     { stdio: 'inherit' }
   );
 
-  // Install dependencies in cache directory so worker can resolve them
   console.log(`Running bun install in cache folder (version ${version})...`);
-  execSync(`bun install`, { cwd: CACHE_VERSION_PATH, stdio: 'inherit' });
+  execSync('bun install', { cwd: CACHE_VERSION_PATH, stdio: 'inherit' });
 
   console.log('\x1b[32m%s\x1b[0m', 'Sync complete!');
 
-  // Trigger worker restart after file sync
   console.log('\n🔄 Triggering worker restart...');
   const http = require('http');
-  const os = require('os');
-  // Use per-user port derivation (#1936)
   const uid = typeof process.getuid === 'function' ? process.getuid() : 77;
-  const workerPort = parseInt(process.env.CLAUDE_MEM_WORKER_PORT || String(37700 + (uid % 100)), 10);
-  const req = http.request({
-    hostname: '127.0.0.1',
-    port: workerPort,
-    path: '/api/admin/restart',
-    method: 'POST',
-    timeout: 2000
-  }, (res) => {
-    if (res.statusCode === 200) {
-      console.log('\x1b[32m%s\x1b[0m', '✓ Worker restart triggered');
-    } else {
-      console.log('\x1b[33m%s\x1b[0m', `ℹ Worker restart returned status ${res.statusCode}`);
+  const workerPort = parseInt(
+    process.env.CLAUDE_MEM_WORKER_PORT || String(37700 + (uid % 100)),
+    10
+  );
+  const req = http.request(
+    {
+      hostname: '127.0.0.1',
+      port: workerPort,
+      path: '/api/admin/restart',
+      method: 'POST',
+      timeout: 2000,
+    },
+    res => {
+      if (res.statusCode === 200) {
+        console.log('\x1b[32m%s\x1b[0m', '✓ Worker restart triggered');
+      } else {
+        console.log('\x1b[33m%s\x1b[0m', `ℹ Worker restart returned status ${res.statusCode}`);
+      }
     }
-  });
+  );
   req.on('error', () => {
     console.log('\x1b[33m%s\x1b[0m', 'ℹ Worker not running, will start on next hook');
   });
@@ -133,7 +110,6 @@ try {
     console.log('\x1b[33m%s\x1b[0m', 'ℹ Worker restart timed out');
   });
   req.end();
-
 } catch (error) {
   console.error('\x1b[31m%s\x1b[0m', 'Sync failed:', error.message);
   process.exit(1);
