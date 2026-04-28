@@ -18,7 +18,7 @@
  */
 
 import path from 'path';
-import { existsSync, mkdirSync, writeFileSync, unlinkSync, statSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, unlinkSync, statSync, appendFileSync } from 'fs';
 import { logger } from '../utils/logger.js';
 import { HOOK_TIMEOUTS } from '../shared/hook-constants.js';
 import { SettingsDefaultsManager } from '../shared/SettingsDefaultsManager.js';
@@ -34,6 +34,31 @@ import {
   waitForHealth,
   waitForReadiness,
 } from './infrastructure/HealthMonitor.js';
+
+// Append-only JSONL log of every ensureWorkerStarted failure, daily-rotated.
+// Pairs with claude-mem-hooks/runner.cjs's hook-failures-*.jsonl: that file
+// catches "the hook process exited non-zero", this one catches "the worker
+// spawner gave up before that exit." Together they let triage trace a silent
+// SessionStart failure to the specific spawn path that broke. Read with:
+//   jq -c . ~/.claude-mem/logs/worker-startup-failures-*.jsonl
+function logSpawnFailure(reason: string, ctx: Record<string, unknown> = {}): void {
+  try {
+    const dataDir = SettingsDefaultsManager.get('CLAUDE_MEM_DATA_DIR');
+    const logsDir = path.join(dataDir, 'logs');
+    if (!existsSync(logsDir)) mkdirSync(logsDir, { recursive: true });
+    const day = new Date().toISOString().slice(0, 10);
+    const file = path.join(logsDir, `worker-startup-failures-${day}.jsonl`);
+    const line = JSON.stringify({
+      ts: new Date().toISOString(),
+      pid: process.pid,
+      reason,
+      ...ctx,
+    });
+    appendFileSync(file, line + '\n');
+  } catch {
+    // Diagnostics must never break startup. Logger covers the human-readable path.
+  }
+}
 
 // Windows: avoid repeated spawn popups when startup fails (issue #921)
 const WINDOWS_SPAWN_COOLDOWN_MS = 2 * 60 * 1000;
@@ -117,6 +142,7 @@ export async function ensureWorkerStarted(
   // log line at the entry point. See PR #1645 review feedback for context.
   if (!workerScriptPath) {
     logger.error('SYSTEM', 'ensureWorkerStarted called with empty workerScriptPath — caller bug');
+    logSpawnFailure('empty-script-path', { port });
     return false;
   }
   if (!existsSync(workerScriptPath)) {
@@ -125,6 +151,7 @@ export async function ensureWorkerStarted(
       'ensureWorkerStarted: worker script not found at expected path — likely a partial install or build artifact missing',
       { workerScriptPath }
     );
+    logSpawnFailure('script-path-missing', { port, workerScriptPath });
     return false;
   }
 
@@ -144,6 +171,7 @@ export async function ensureWorkerStarted(
       return true;
     }
     logger.warn('SYSTEM', 'Live PID detected but worker did not become healthy before timeout');
+    logSpawnFailure('live-pid-health-timeout', { port });
     return false;
   }
 
@@ -173,12 +201,14 @@ export async function ensureWorkerStarted(
       return true;
     }
     logger.error('SYSTEM', 'Port in use but worker not responding to health checks');
+    logSpawnFailure('port-in-use-no-response', { port });
     return false;
   }
 
   // Windows: skip spawn if a recent attempt already failed (issue #921)
   if (shouldSkipSpawnOnWindows()) {
     logger.warn('SYSTEM', 'Worker unavailable on Windows — skipping spawn (recent attempt failed within cooldown)');
+    logSpawnFailure('windows-cooldown', { port });
     return false;
   }
 
@@ -188,6 +218,7 @@ export async function ensureWorkerStarted(
   const pid = spawnDaemon(workerScriptPath, port);
   if (pid === undefined) {
     logger.error('SYSTEM', 'Failed to spawn worker daemon');
+    logSpawnFailure('spawn-daemon-failed', { port, workerScriptPath });
     return false;
   }
 
@@ -196,6 +227,7 @@ export async function ensureWorkerStarted(
   if (!healthy) {
     removePidFile();
     logger.error('SYSTEM', 'Worker failed to start (health check timeout)');
+    logSpawnFailure('post-spawn-health-timeout', { port, pid });
     return false;
   }
 

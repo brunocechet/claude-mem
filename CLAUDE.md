@@ -122,6 +122,18 @@ The marketplace plugin updater (12.3.9 → 12.4.4) rsynced upstream files **thro
 
 **Prevention**: do NOT symlink `~/.claude/plugins/marketplaces/thedotmack` to this repo. The marketplace dir should be a normal directory the updater owns. Use `npm run build-dev` (which runs `sync-marketplace:force`) to push from this repo into the marketplace dir explicitly. After every meaningful edit, **commit immediately** — uncommitted work is at risk if the updater fires.
 
+## Merge Divergence Policy (this fork stays local)
+
+This fork is permanent — there are no upstream PRs planned. Strategy is to minimize the surface area where local changes touch upstream-tracked files, and protect the unavoidable diverged files from silent merge regressions.
+
+**Owned shim layer**: hook entry points live in [plugin/scripts/claude-mem-hooks/](plugin/scripts/claude-mem-hooks/) — a path upstream does not ship. Hooks call our `runner.cjs` instead of upstream's `bun-runner.js`, so changes to upstream's runner cannot break our hook contract. The runner clamps every exit to 0, logs failures to `~/.claude-mem/logs/hook-failures-YYYY-MM-DD.jsonl`, and bails cleanly on missing install-stamp / missing bun.
+
+**Always-take-ours merge driver**: [.gitattributes](.gitattributes) marks `plugin/hooks/hooks.json` as `merge=ours`. Run [`scripts/setup-merge-drivers.sh`](scripts/setup-merge-drivers.sh) once after cloning (and after any `git config --unset` mishap) to register the driver in local git config. Re-running is idempotent. The 2026-04-27 merge of upstream main silently dropped wave-1's SessionStart collapse because hooks.json had no protection — this is what stops it from happening again.
+
+**When merging upstream**: after `git merge origin/main`, manually inspect any file that *isn't* `merge=ours` but is also intentionally divergent (currently: `src/services/worker-service.ts` for the `ensureWorkerStarted` hardening). If those conflict, prefer ours and re-apply upstream's actual changes by hand. Add files to `.gitattributes` over time as the divergent surface stabilizes.
+
+**Worker-startup diagnostics**: every `return false` path in `ensureWorkerStarted` ([src/services/worker-spawner.ts](src/services/worker-spawner.ts)) appends one JSONL line to `~/.claude-mem/logs/worker-startup-failures-YYYY-MM-DD.jsonl` with the failure reason (`script-path-missing`, `live-pid-health-timeout`, `port-in-use-no-response`, `windows-cooldown`, `spawn-daemon-failed`, `post-spawn-health-timeout`, etc.). When a hook fails silently and `claude-mem-hooks/runner.cjs` logs `child-nonzero` to `hook-failures-*.jsonl`, cross-reference the timestamp here to find which spawn path actually broke.
+
 ## Important
 
 No need to edit the changelog ever, it's generated automatically.

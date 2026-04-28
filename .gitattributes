@@ -8,6 +8,13 @@
 plugin/scripts/*.cjs eol=lf
 plugin/scripts/*.js  eol=lf
 
+# Always-take-ours merge driver for files where upstream thedotmack/claude-mem
+# diverges from this fork's intentional shape. Without this, merging upstream
+# into wave-* branches silently undoes local fixes (see CLAUDE.md "Merge
+# Divergence Policy"). Register the driver once with:
+#     scripts/setup-merge-drivers.sh
+plugin/hooks/hooks.json merge=ours
+
 # Explicitly mark binary assets so git never modifies them.
 *.png  binary
 *.jpg  binary

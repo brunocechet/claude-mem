@@ -1095,6 +1095,14 @@ export class WorkerService implements WorkerRef {
  * `mcp-server.cjs`, so it computes the worker path explicitly via
  * `dirname(__filename) + 'worker-service.cjs'` instead.
  *
+ * Hook contract: this is the single source of truth for worker readiness.
+ * The hook command (case 'hook' below) calls it before invoking the actual
+ * handler, so SessionStart and other hooks should NOT prepend separate
+ * worker-start invocations — those would be redundant work plus extra
+ * failure surface. plugin/hooks/hooks.json's SessionStart was collapsed to
+ * a single context-fetch hook for exactly this reason; see CLAUDE.md
+ * "Merge Divergence Policy".
+ *
  * @param port - The TCP port (used for port-in-use checks and daemon spawn)
  * @returns true if worker is healthy (existing or newly started), false on failure
  */
