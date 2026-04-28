@@ -43,8 +43,13 @@ export function renderHumanHeader(project: string): string[] {
 
 /**
  * Render human-readable legend
+ *
+ * Verbose mode (rollback): full legend listing all observation types.
+ * Default (collapsed): empty — emojis are learned from CLAUDE.md, not repeated every session.
  */
-export function renderHumanLegend(): string[] {
+export function renderHumanLegend(verbose: boolean = false): string[] {
+  if (!verbose) return [];
+
   const mode = ModeManager.getInstance().getActiveMode();
   const typeLegendItems = mode.observation_types.map(t => `${t.emoji} ${t.id}`).join(' | ');
 
@@ -56,8 +61,13 @@ export function renderHumanLegend(): string[] {
 
 /**
  * Render human-readable column key
+ *
+ * Verbose mode (rollback): full key explaining Read/Work columns.
+ * Default (collapsed): empty — never referenced.
  */
-export function renderHumanColumnKey(): string[] {
+export function renderHumanColumnKey(verbose: boolean = false): string[] {
+  if (!verbose) return [];
+
   return [
     `${colors.bright}Column Key${colors.reset}`,
     `${colors.dim}  Read: Tokens to read this observation (cost to learn it now)${colors.reset}`,
@@ -68,8 +78,13 @@ export function renderHumanColumnKey(): string[] {
 
 /**
  * Render human-readable context index instructions
+ *
+ * Verbose mode (rollback): full preamble with Trust-this-index nudge.
+ * Default (collapsed): empty — gentle nudge is expensive cumulatively.
  */
-export function renderHumanContextIndex(): string[] {
+export function renderHumanContextIndex(verbose: boolean = false): string[] {
+  if (!verbose) return [];
+
   return [
     `${colors.dim}Context Index: This semantic index (titles, types, files, tokens) is usually sufficient to understand past work.${colors.reset}`,
     '',
@@ -83,31 +98,49 @@ export function renderHumanContextIndex(): string[] {
 
 /**
  * Render human-readable context economics
+ *
+ * Verbose mode (rollback): 4-line block (header, Loading, Work investment, Your savings).
+ * Default (collapsed): single line "📊 N obs · X% recall savings · use mem-search skill for deeper history"
+ * (savings clause omitted when 0/unknown).
  */
 export function renderHumanContextEconomics(
   economics: TokenEconomics,
   config: ContextConfig
 ): string[] {
-  const output: string[] = [];
+  if (config.verbose) {
+    const output: string[] = [];
 
-  output.push(`${colors.bright}${colors.cyan}Context Economics${colors.reset}`);
-  output.push(`${colors.dim}  Loading: ${economics.totalObservations} observations (${economics.totalReadTokens.toLocaleString()} tokens to read)${colors.reset}`);
-  output.push(`${colors.dim}  Work investment: ${economics.totalDiscoveryTokens.toLocaleString()} tokens spent on research, building, and decisions${colors.reset}`);
+    output.push(`${colors.bright}${colors.cyan}Context Economics${colors.reset}`);
+    output.push(`${colors.dim}  Loading: ${economics.totalObservations} observations (${economics.totalReadTokens.toLocaleString()} tokens to read)${colors.reset}`);
+    output.push(`${colors.dim}  Work investment: ${economics.totalDiscoveryTokens.toLocaleString()} tokens spent on research, building, and decisions${colors.reset}`);
 
-  if (economics.totalDiscoveryTokens > 0 && (config.showSavingsAmount || config.showSavingsPercent)) {
-    let savingsLine = '  Your savings: ';
-    if (config.showSavingsAmount && config.showSavingsPercent) {
-      savingsLine += `${economics.savings.toLocaleString()} tokens (${economics.savingsPercent}% reduction from reuse)`;
-    } else if (config.showSavingsAmount) {
-      savingsLine += `${economics.savings.toLocaleString()} tokens`;
-    } else {
-      savingsLine += `${economics.savingsPercent}% reduction from reuse`;
+    if (economics.totalDiscoveryTokens > 0 && (config.showSavingsAmount || config.showSavingsPercent)) {
+      let savingsLine = '  Your savings: ';
+      if (config.showSavingsAmount && config.showSavingsPercent) {
+        savingsLine += `${economics.savings.toLocaleString()} tokens (${economics.savingsPercent}% reduction from reuse)`;
+      } else if (config.showSavingsAmount) {
+        savingsLine += `${economics.savings.toLocaleString()} tokens`;
+      } else {
+        savingsLine += `${economics.savingsPercent}% reduction from reuse`;
+      }
+      output.push(`${colors.green}${savingsLine}${colors.reset}`);
     }
-    output.push(`${colors.green}${savingsLine}${colors.reset}`);
-  }
-  output.push('');
+    output.push('');
 
-  return output;
+    return output;
+  }
+
+  // Collapsed shape: single line.
+  const segments: string[] = [`${economics.totalObservations} obs`];
+  if (economics.totalDiscoveryTokens > 0 && economics.savingsPercent > 0) {
+    segments.push(`${economics.savingsPercent}% recall savings`);
+  }
+  segments.push('use mem-search skill for deeper history');
+
+  return [
+    `${colors.dim}📊 ${segments.join(' · ')}${colors.reset}`,
+    ''
+  ];
 }
 
 /**

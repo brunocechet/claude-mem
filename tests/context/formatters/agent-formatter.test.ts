@@ -93,6 +93,10 @@ function createTestConfig(overrides: Partial<ContextConfig> = {}): ContextConfig
     fullObservationField: 'narrative',
     showLastSummary: true,
     showLastMessage: true,
+    contextBudgetTokens: 0,
+    stalenessCutoffEpoch: 0,
+    includeStale: false,
+    verbose: false,
     ...overrides,
   };
 }
@@ -121,16 +125,21 @@ describe('AgentFormatter', () => {
   });
 
   describe('renderAgentLegend', () => {
-    it('should produce legend with type items', () => {
+    it('should be empty by default (collapsed shape)', () => {
       const result = renderAgentLegend();
+      expect(result).toHaveLength(0);
+    });
+
+    it('should produce legend with type items in verbose mode', () => {
+      const result = renderAgentLegend(true);
 
       expect(result).toHaveLength(4);
       expect(result[0]).toContain('Legend:');
       expect(result[3]).toBe('');
     });
 
-    it('should include session in legend', () => {
-      const result = renderAgentLegend();
+    it('should include session in legend in verbose mode', () => {
+      const result = renderAgentLegend(true);
 
       expect(result[0]).toContain('session');
     });
@@ -142,6 +151,12 @@ describe('AgentFormatter', () => {
 
       expect(result).toHaveLength(0);
     });
+
+    it('should still return empty array in verbose mode (column key was already empty)', () => {
+      const result = renderAgentColumnKey(true);
+
+      expect(result).toHaveLength(0);
+    });
   });
 
   describe('renderAgentContextIndex', () => {
@@ -150,9 +165,15 @@ describe('AgentFormatter', () => {
 
       expect(result).toHaveLength(0);
     });
+
+    it('should still return empty array in verbose mode (context index was already empty)', () => {
+      const result = renderAgentContextIndex(true);
+
+      expect(result).toHaveLength(0);
+    });
   });
 
-  describe('renderAgentContextEconomics', () => {
+  describe('renderAgentContextEconomics (collapsed default)', () => {
     it('should include observation count', () => {
       const economics = createTestEconomics({ totalObservations: 25 });
       const config = createTestConfig();
@@ -163,9 +184,41 @@ describe('AgentFormatter', () => {
       expect(joined).toContain('25 obs');
     });
 
-    it('should include read tokens', () => {
-      const economics = createTestEconomics({ totalReadTokens: 1500 });
+    it('should render single collapsed line with mem-search hint', () => {
+      const economics = createTestEconomics();
       const config = createTestConfig();
+
+      const result = renderAgentContextEconomics(economics, config);
+
+      // Header line + trailing blank.
+      expect(result).toHaveLength(2);
+      expect(result[0]).toContain('📊');
+      expect(result[0]).toContain('use mem-search skill for deeper history');
+    });
+
+    it('should include savings clause when savingsPercent > 0', () => {
+      const economics = createTestEconomics({ savingsPercent: 90, totalDiscoveryTokens: 5000 });
+      const config = createTestConfig();
+
+      const result = renderAgentContextEconomics(economics, config);
+
+      expect(result[0]).toContain('90% recall savings');
+    });
+
+    it('should omit savings clause when savings is 0', () => {
+      const economics = createTestEconomics({ savings: 0, savingsPercent: 0, totalDiscoveryTokens: 0 });
+      const config = createTestConfig();
+
+      const result = renderAgentContextEconomics(economics, config);
+
+      expect(result[0]).not.toContain('savings');
+    });
+  });
+
+  describe('renderAgentContextEconomics (verbose rollback)', () => {
+    it('should include read tokens in verbose mode', () => {
+      const economics = createTestEconomics({ totalReadTokens: 1500 });
+      const config = createTestConfig({ verbose: true });
 
       const result = renderAgentContextEconomics(economics, config);
       const joined = result.join('\n');
@@ -173,9 +226,9 @@ describe('AgentFormatter', () => {
       expect(joined).toContain('1,500t read');
     });
 
-    it('should include work investment', () => {
+    it('should include work investment in verbose mode', () => {
       const economics = createTestEconomics({ totalDiscoveryTokens: 10000 });
-      const config = createTestConfig();
+      const config = createTestConfig({ verbose: true });
 
       const result = renderAgentContextEconomics(economics, config);
       const joined = result.join('\n');
@@ -183,9 +236,9 @@ describe('AgentFormatter', () => {
       expect(joined).toContain('10,000t work');
     });
 
-    it('should show savings when config has showSavingsAmount', () => {
+    it('should show savings when config has showSavingsAmount in verbose mode', () => {
       const economics = createTestEconomics({ savings: 4500, savingsPercent: 90, totalDiscoveryTokens: 5000 });
-      const config = createTestConfig({ showSavingsAmount: true, showSavingsPercent: false });
+      const config = createTestConfig({ verbose: true, showSavingsAmount: true, showSavingsPercent: false });
 
       const result = renderAgentContextEconomics(economics, config);
       const joined = result.join('\n');
@@ -193,9 +246,9 @@ describe('AgentFormatter', () => {
       expect(joined).toContain('4,500t saved');
     });
 
-    it('should show savings percent when config has showSavingsPercent', () => {
+    it('should show savings percent when config has showSavingsPercent in verbose mode', () => {
       const economics = createTestEconomics({ savingsPercent: 85, totalDiscoveryTokens: 1000 });
-      const config = createTestConfig({ showSavingsAmount: false, showSavingsPercent: true });
+      const config = createTestConfig({ verbose: true, showSavingsAmount: false, showSavingsPercent: true });
 
       const result = renderAgentContextEconomics(economics, config);
       const joined = result.join('\n');
@@ -203,14 +256,23 @@ describe('AgentFormatter', () => {
       expect(joined).toContain('85% savings');
     });
 
-    it('should not show savings when discovery tokens is 0', () => {
+    it('should not show savings in verbose mode when discovery tokens is 0', () => {
       const economics = createTestEconomics({ totalDiscoveryTokens: 0, savings: 0, savingsPercent: 0 });
-      const config = createTestConfig({ showSavingsAmount: true, showSavingsPercent: true });
+      const config = createTestConfig({ verbose: true, showSavingsAmount: true, showSavingsPercent: true });
 
       const result = renderAgentContextEconomics(economics, config);
       const joined = result.join('\n');
 
       expect(joined).not.toContain('savings');
+    });
+
+    it('should render Stats: prefix in verbose mode', () => {
+      const economics = createTestEconomics();
+      const config = createTestConfig({ verbose: true });
+
+      const result = renderAgentContextEconomics(economics, config);
+
+      expect(result[0]).toContain('Stats:');
     });
   });
 

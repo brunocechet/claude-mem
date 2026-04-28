@@ -42,5 +42,14 @@ export function loadContextConfig(): ContextConfig {
       const days = parseInt(settings.CLAUDE_MEM_CONTEXT_STALENESS_DAYS, 10);
       return days > 0 ? Date.now() - days * 24 * 60 * 60 * 1000 : 0;
     })(),
+    verbose: settings.CLAUDE_MEM_CONTEXT_VERBOSE === 'true',
+    showStateHeader: settings.CLAUDE_MEM_CONTEXT_STATE_HEADER === 'true',
+    priorityRanking: settings.CLAUDE_MEM_CONTEXT_PRIORITY_RANKING === 'true',
+    showBlockers: settings.CLAUDE_MEM_CONTEXT_BLOCKERS_SECTION === 'true',
+    maxBlockers: (() => {
+      const parsed = parseInt(settings.CLAUDE_MEM_CONTEXT_BLOCKERS_MAX, 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+    })(),
+    subjectClustering: settings.CLAUDE_MEM_CONTEXT_SUBJECT_CLUSTERING === 'true',
   };
 }
