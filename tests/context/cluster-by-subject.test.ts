@@ -10,7 +10,10 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { clusterBySubject } from '../../src/services/context/ObservationCompiler.js';
+import {
+  clusterBySubject,
+  scoreObservations,
+} from '../../src/services/context/ObservationCompiler.js';
 import type { Observation } from '../../src/services/context/types.js';
 
 const NOW = 1_735_732_800_000;
@@ -200,5 +203,57 @@ describe('clusterBySubject', () => {
     expect(result).toHaveLength(2);
     expect(result[0].count).toBe(1);
     expect(result[1].count).toBe(1);
+  });
+
+  // ---------- precomputedScores (Item 3 of v2 follow-ups) ----------
+
+  it('produces identical clusters with vs. without precomputedScores', () => {
+    // 10 mixed-type, mixed-age observations across 3 subjects so we exercise
+    // intra-cluster sort, inter-cluster sort, and topByPriority selection.
+    const obs: Observation[] = [
+      makeObs(1, 'discovery', 0,    { files_modified: '["src/foo.ts"]' }),
+      makeObs(2, 'feature', 1,      { files_modified: '["src/foo.ts"]' }),
+      makeObs(3, 'bugfix', 2,       { files_modified: '["src/foo.ts"]' }),
+      makeObs(4, 'decision', 3,     { files_modified: '["src/bar.ts"]' }),
+      makeObs(5, 'change', 4,       { files_modified: '["src/bar.ts"]' }),
+      makeObs(6, 'refactor', 0.5,   { files_modified: '["src/bar.ts"]' }),
+      makeObs(7, 'security_alert', 7, { files_modified: '["src/baz.ts"]' }),
+      makeObs(8, 'security_note', 0,  { files_modified: '["src/baz.ts"]' }),
+      makeObs(9, 'discovery', 14,   { files_modified: '["src/baz.ts"]' }),
+      makeObs(10, 'feature', 0,     { files_modified: '["src/baz.ts"]' }),
+    ];
+
+    const scoreMap = scoreObservations(obs, NOW);
+    const withMap = clusterBySubject(obs, NOW, scoreMap);
+    const withoutMap = clusterBySubject(obs, NOW);
+
+    expect(withMap).toEqual(withoutMap);
+  });
+
+  it('falls back to per-row scoring when an obs id is missing from the map', () => {
+    const obs: Observation[] = [
+      makeObs(1, 'discovery', 0,  { files_modified: '["src/foo.ts"]' }),
+      makeObs(2, 'feature', 1,    { files_modified: '["src/foo.ts"]' }),
+      makeObs(3, 'bugfix', 2,     { files_modified: '["src/foo.ts"]' }),
+      makeObs(4, 'decision', 3,   { files_modified: '["src/bar.ts"]' }),
+    ];
+
+    // Deliberately omit obs id=3 (the bugfix that should win the foo cluster).
+    const fullMap = scoreObservations(obs, NOW);
+    const partialMap = new Map(fullMap);
+    partialMap.delete(3);
+    expect(partialMap.has(3)).toBe(false);
+
+    // No throw, and the result must match the no-map result exactly.
+    const partialResult = clusterBySubject(obs, NOW, partialMap);
+    const baseline = clusterBySubject(obs, NOW);
+
+    expect(partialResult).toEqual(baseline);
+
+    // Sanity: obs 3 is still placed sensibly in the foo cluster.
+    const fooCluster = partialResult.find(c => c.subject === 'foo');
+    expect(fooCluster).toBeDefined();
+    expect(fooCluster!.observations.map(o => o.id)).toEqual([3, 2, 1]);
+    expect(fooCluster!.topByPriority.id).toBe(3);
   });
 });

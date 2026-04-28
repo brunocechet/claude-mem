@@ -26,6 +26,7 @@ import {
   getFullObservationIds,
   rankByPriority,
   clusterBySubject,
+  scoreObservations,
   type ObservationCluster,
 } from './ObservationCompiler.js';
 import { renderHeader } from './sections/HeaderRenderer.js';
@@ -201,10 +202,20 @@ export async function generateContext(
       ? querySummariesMulti(db, projects, config)
       : querySummaries(db, project, config);
 
+    // Score-once optimization: when both ranking and clustering are enabled,
+    // they share an identical TYPE_WEIGHT × recency-decay computation per row.
+    // Compute the score map once (with a single `now`) and pass it to both
+    // consumers so neither rescans the list. A single shared `now` also
+    // guarantees both views agree on recency for this digest.
+    const now = Date.now();
+    const scoreMap = (config.priorityRanking || config.subjectClustering)
+      ? scoreObservations(observationsRaw, now)
+      : undefined;
+
     // Type-weighted ranking pass: surface high-signal observations first.
     // Falls back to chronological (raw) order when the flag is off.
     const observations = config.priorityRanking
-      ? rankByPriority(observationsRaw)
+      ? rankByPriority(observationsRaw, now, scoreMap)
       : observationsRaw;
 
     // Handle empty state before computing the state header — renderStateHeader
@@ -227,7 +238,7 @@ export async function generateContext(
       ? renderBlockersSection(observations, config)
       : null;
     const clusters = config.subjectClustering
-      ? clusterBySubject(observations)
+      ? clusterBySubject(observations, now, scoreMap)
       : null;
 
     // Build and return context

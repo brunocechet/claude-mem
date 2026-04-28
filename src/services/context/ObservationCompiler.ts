@@ -398,6 +398,29 @@ export function scoreObservation(obs: Observation, nowEpoch: number): number {
 }
 
 /**
+ * Compute priority scores for a list of observations.
+ *
+ * Returns a Map keyed by observation id. Use this when you need to score the
+ * same observations for multiple consumers (e.g. rankByPriority then
+ * clusterBySubject) — avoids the second pass over scoreObservation per obs.
+ *
+ * For single-consumer paths, prefer the existing rankByPriority/
+ * clusterBySubject helpers and let them score internally.
+ *
+ * Pure: returns a new Map; the input is not mutated.
+ */
+export function scoreObservations(
+  observations: ReadonlyArray<Observation>,
+  now: number = Date.now(),
+): ReadonlyMap<number, number> {
+  const scores = new Map<number, number>();
+  for (const obs of observations) {
+    scores.set(obs.id, scoreObservation(obs, now));
+  }
+  return scores;
+}
+
+/**
  * Reorder observations by priority (TYPE_WEIGHT × recency decay), most
  * relevant first. Stable: rows with the same score keep their input
  * order, with `created_at_epoch` descending as the explicit tiebreaker.
@@ -407,16 +430,24 @@ export function scoreObservation(obs: Observation, nowEpoch: number): number {
  * @param observations - Source list (caller-owned, untouched)
  * @param now - Optional reference time (millis since epoch). Defaults to
  *              `Date.now()`. Tests inject a fixed clock here.
+ * @param precomputedScores - Optional Map<obs.id, score> to skip the
+ *              per-row `scoreObservation` call. The map MUST be keyed
+ *              by ids from the same `observations` array passed here —
+ *              mismatched ids fall back silently to local scoring,
+ *              which is safe but defeats the perf benefit. Pass when
+ *              the caller already scored THIS list for another consumer
+ *              (e.g. `clusterBySubject`).
  */
 export function rankByPriority(
   observations: ReadonlyArray<Observation>,
   now: number = Date.now(),
+  precomputedScores?: ReadonlyMap<number, number>,
 ): Observation[] {
   // Decorate with stable index so we can preserve input order on score ties.
   const decorated = observations.map((obs, index) => ({
     obs,
     index,
-    score: scoreObservation(obs, now),
+    score: precomputedScores?.get(obs.id) ?? scoreObservation(obs, now),
   }));
 
   decorated.sort((a, b) => {
@@ -480,10 +511,19 @@ function parseFilesModified(rawFiles: string | null): string[] {
  * @param observations - Source list (caller-owned, untouched)
  * @param now - Optional reference time (millis since epoch). Defaults to
  *              `Date.now()`. Tests inject a fixed clock here.
+ * @param precomputedScores - Optional Map<obs.id, score> to skip the
+ *              per-row `scoreObservation` call (used by both intra-cluster
+ *              sort and the `topByPriority` selection). The map MUST be
+ *              keyed by ids from the same `observations` array passed
+ *              here — mismatched ids fall back silently to local scoring,
+ *              which is safe but defeats the perf benefit. Pass when the
+ *              caller already scored THIS list for another consumer
+ *              (e.g. `rankByPriority`).
  */
 export function clusterBySubject(
   observations: ReadonlyArray<Observation>,
   now: number = Date.now(),
+  precomputedScores?: ReadonlyMap<number, number>,
 ): ObservationCluster[] {
   if (observations.length === 0) return [];
 
@@ -515,7 +555,7 @@ export function clusterBySubject(
     const decorated: Decorated = {
       obs,
       index,
-      score: scoreObservation(obs, now),
+      score: precomputedScores?.get(obs.id) ?? scoreObservation(obs, now),
     };
 
     let bucket = groups.get(groupKey);
