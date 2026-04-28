@@ -47,9 +47,13 @@ export interface ContextConfig {
   stalenessCutoffEpoch: number;
   // When true (full mode / explicit recall), include stale observations
   includeStale: boolean;
-  // When true, render full pre-v2 boilerplate (legend, column key, context-index preamble,
-  // 4-line economics block). Default false → collapsed single-line economics, no boilerplate.
-  // Acts as a rollback flag for the context digest v2 cuts.
+  /**
+   * Restore the verbose pre-v2 boilerplate blocks (legend, column key,
+   * context-index preamble, 4-line economics) in formatter output. Does
+   * NOT disable the v2 sections — for full rollback to pre-v2 shape, also
+   * set CLAUDE_MEM_CONTEXT_STATE_HEADER, CLAUDE_MEM_CONTEXT_BLOCKERS_SECTION,
+   * and CLAUDE_MEM_CONTEXT_SUBJECT_CLUSTERING to 'false'.
+   */
   verbose: boolean;
   // When true (default), render the live git state header (📍 project · branch · dirty · …)
   // at the very top of the digest. Set to false to revert to pre-Phase-2 layout.
@@ -57,6 +61,15 @@ export interface ContextConfig {
   // When true (default), reorder observations by TYPE_WEIGHT × recencyDecay so high-signal
   // rows surface first. When false, fall back to chronological ordering.
   priorityRanking: boolean;
+  // When true (default), render the 🚧 Pending decisions / blockers section between
+  // the state header and the main timeline. Backed by extractActionableSignals.
+  showBlockers: boolean;
+  // Maximum number of blocker bullets to render before folding into a "+ N more" footnote.
+  maxBlockers: number;
+  // When true (default), group timeline observations by normalized subject (file basename or
+  // title-derived) and render one cluster per subject with the top-priority winner first.
+  // When false, fall back to the legacy flat per-day rendering.
+  subjectClustering: boolean;
 }
 
 /**

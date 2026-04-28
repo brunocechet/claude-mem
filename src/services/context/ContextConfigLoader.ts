@@ -45,5 +45,11 @@ export function loadContextConfig(): ContextConfig {
     verbose: settings.CLAUDE_MEM_CONTEXT_VERBOSE === 'true',
     showStateHeader: settings.CLAUDE_MEM_CONTEXT_STATE_HEADER === 'true',
     priorityRanking: settings.CLAUDE_MEM_CONTEXT_PRIORITY_RANKING === 'true',
+    showBlockers: settings.CLAUDE_MEM_CONTEXT_BLOCKERS_SECTION === 'true',
+    maxBlockers: (() => {
+      const parsed = parseInt(settings.CLAUDE_MEM_CONTEXT_BLOCKERS_MAX, 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+    })(),
+    subjectClustering: settings.CLAUDE_MEM_CONTEXT_SUBJECT_CLUSTERING === 'true',
   };
 }

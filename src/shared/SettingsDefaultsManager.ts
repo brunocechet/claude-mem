@@ -49,12 +49,20 @@ export interface SettingsDefaults {
   // Budget & Staleness
   CLAUDE_MEM_CONTEXT_BUDGET: string;
   CLAUDE_MEM_CONTEXT_STALENESS_DAYS: string;
-  // Verbose boilerplate (rollback flag for context digest v2)
+  // Verbose boilerplate: 'true' restores pre-v2 legend / column-key / context-index /
+  // 4-line economics blocks. Does NOT disable the v2 state header, blockers section,
+  // or subject clustering — for full rollback set those flags to 'false' as well.
   CLAUDE_MEM_CONTEXT_VERBOSE: string;
   // Live git state header at top of digest (Phase 2 of context digest v2)
   CLAUDE_MEM_CONTEXT_STATE_HEADER: string;
   // Type-weighted priority ranking of observations (Phase 2 of context digest v2)
   CLAUDE_MEM_CONTEXT_PRIORITY_RANKING: string;
+  // 🚧 Pending decisions / blockers section (Phase 3 of context digest v2)
+  CLAUDE_MEM_CONTEXT_BLOCKERS_SECTION: string;
+  // Maximum number of blocker bullets to show before truncating with "+ N more" (Phase 3)
+  CLAUDE_MEM_CONTEXT_BLOCKERS_MAX: string;
+  // Subject clustering of timeline observations (Phase 3 of context digest v2)
+  CLAUDE_MEM_CONTEXT_SUBJECT_CLUSTERING: string;
   // Feature Toggles
   CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: string;
   CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: string;
@@ -136,12 +144,22 @@ export class SettingsDefaultsManager {
     // Budget & Staleness (0 = disabled)
     CLAUDE_MEM_CONTEXT_BUDGET: '2048',
     CLAUDE_MEM_CONTEXT_STALENESS_DAYS: '7',
-    // Verbose boilerplate ('true' restores legend/column-key/economics blocks for rollback; default 'false' uses collapsed shape)
+    // Verbose boilerplate: 'true' restores pre-v2 legend / column-key / context-index /
+    // 4-line economics blocks; default 'false' uses the collapsed shape. Does NOT disable
+    // the v2 state header, blockers section, or subject clustering — for full pre-v2 rollback,
+    // also set CLAUDE_MEM_CONTEXT_STATE_HEADER, CLAUDE_MEM_CONTEXT_BLOCKERS_SECTION, and
+    // CLAUDE_MEM_CONTEXT_SUBJECT_CLUSTERING to 'false'.
     CLAUDE_MEM_CONTEXT_VERBOSE: 'false',
     // Live git state header (project · branch · dirty · ahead/behind · last commit) at top of digest
     CLAUDE_MEM_CONTEXT_STATE_HEADER: 'true',
     // Type-weighted ranking pass (decision/security_alert/bugfix > … > discovery, recency decay 7d half-life)
     CLAUDE_MEM_CONTEXT_PRIORITY_RANKING: 'true',
+    // 🚧 Pending decisions / blockers section aggregating ActionableSignals at top of digest
+    CLAUDE_MEM_CONTEXT_BLOCKERS_SECTION: 'true',
+    // Cap on number of blocker bullets rendered (older entries fold into "+ N more" footnote)
+    CLAUDE_MEM_CONTEXT_BLOCKERS_MAX: '5',
+    // Subject clustering: group timeline by normalized file/subject, surface top-priority winner per cluster
+    CLAUDE_MEM_CONTEXT_SUBJECT_CLUSTERING: 'true',
     // Feature Toggles
     CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: 'true',
     CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: 'false',

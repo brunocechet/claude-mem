@@ -25,10 +25,13 @@ import {
   buildTimeline,
   getFullObservationIds,
   rankByPriority,
+  clusterBySubject,
+  type ObservationCluster,
 } from './ObservationCompiler.js';
 import { renderHeader } from './sections/HeaderRenderer.js';
 import { renderStateHeader } from './sections/StateRenderer.js';
-import { renderTimeline } from './sections/TimelineRenderer.js';
+import { renderBlockersSection } from './sections/BlockersRenderer.js';
+import { renderTimeline, renderTimelineClustered } from './sections/TimelineRenderer.js';
 import { shouldShowSummary, renderSummaryFields } from './sections/SummaryRenderer.js';
 import { renderPreviouslySection, renderFooter } from './sections/FooterRenderer.js';
 import { renderAgentEmptyState } from './formatters/AgentFormatter.js';
@@ -87,7 +90,9 @@ function buildContextOutput(
   cwd: string,
   sessionId: string | undefined,
   forHuman: boolean,
-  stateHeader: string | null
+  stateHeader: string | null,
+  blockersSection: string | null,
+  clusters: ObservationCluster[] | null
 ): string {
   const output: string[] = [];
 
@@ -101,17 +106,32 @@ function buildContextOutput(
     output.push(stateHeader, '');
   }
 
+  // 🚧 Pending decisions / blockers section sits between the state header and
+  // the existing "[project] recent context" banner so it's the first thing the
+  // agent reads after location/branch state.
+  if (blockersSection) {
+    output.push(blockersSection, '');
+  }
+
   // Render header section
   output.push(...renderHeader(project, economics, config, forHuman));
 
   // Prepare timeline data
   const displaySummaries = summaries.slice(0, config.sessionCount);
   const summariesForTimeline = prepareSummariesForTimeline(displaySummaries, summaries);
-  const timeline = buildTimeline(observations, summariesForTimeline);
   const fullObservationIds = getFullObservationIds(observations, config.fullObservationCount);
 
-  // Render timeline
-  output.push(...renderTimeline(timeline, fullObservationIds, config, cwd, forHuman));
+  // Render timeline. Clustered path renders subject-grouped blocks with the
+  // top-priority winner per cluster; flat path falls back to the legacy
+  // chronological-by-day grouping.
+  if (clusters) {
+    output.push(
+      ...renderTimelineClustered(clusters, summariesForTimeline, fullObservationIds, config, forHuman),
+    );
+  } else {
+    const timeline = buildTimeline(observations, summariesForTimeline);
+    output.push(...renderTimeline(timeline, fullObservationIds, config, cwd, forHuman));
+  }
 
   // Render most recent summary if applicable
   const mostRecentSummary = summaries[0];
@@ -193,6 +213,16 @@ export async function generateContext(
       ? renderStateHeader(cwd, project)
       : null;
 
+    // 🚧 blockers section + clustered timeline (Phase 3 of context digest v2).
+    // Each is gated by its own setting and falls back to the prior shape
+    // independently when disabled.
+    const blockersSection = config.showBlockers
+      ? renderBlockersSection(observations, config)
+      : null;
+    const clusters = config.subjectClustering
+      ? clusterBySubject(observations)
+      : null;
+
     // Build and return context
     const output = buildContextOutput(
       project,
@@ -202,7 +232,9 @@ export async function generateContext(
       cwd,
       input?.session_id,
       forHuman,
-      stateHeader
+      stateHeader,
+      blockersSection,
+      clusters,
     );
 
     // Apply token budget cap (0 = no cap, full mode bypasses)
