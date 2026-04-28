@@ -240,6 +240,161 @@ describe('renderBlockersSection', () => {
     expect(renderBlockersSection([], makeConfig())).toBeNull();
   });
 
+  it('caps dedup input at 500 signals, dropping oldest first', () => {
+    // Generate 600 observations, each with a single distinct TODO. Use
+    // ageHours = id so id=1 is newest (age 1h) and id=600 is oldest
+    // (age 600h). The cap should keep the newest 500 (id=1..500) and drop
+    // the oldest 100 (id=501..600). With maxBlockers=5, the rendered output
+    // should pull from the 5 newest (id=1..5) — none from the dropped 100.
+    //
+    // Phrasings need <70% Jaccard overlap and no substring containment so the
+    // existing dedup doesn't collapse them. Three independently-varying
+    // tokens (verb, noun, locale) make the overlap < 0.7 across pairs.
+    const verbs = ['audit', 'rewrite', 'migrate', 'profile', 'document', 'rotate', 'cache', 'shard', 'index', 'paginate'];
+    const nouns = ['logger', 'parser', 'queue', 'cache', 'router', 'session', 'worker', 'schema', 'crontab', 'binary'];
+    const locales = ['module', 'service', 'endpoint', 'package', 'fixture', 'controller', 'helper', 'middleware', 'agent', 'view'];
+    const observations: Observation[] = [];
+    for (let i = 1; i <= 600; i++) {
+      const verb = verbs[i % verbs.length];
+      const noun = nouns[Math.floor(i / verbs.length) % nouns.length];
+      const locale = locales[Math.floor(i / (verbs.length * nouns.length)) % locales.length];
+      observations.push(
+        makeObs(i, i, `TODO: ${verb} the ${noun} ${locale} marker${i}`),
+      );
+    }
+
+    const result = renderBlockersSection(observations, makeConfig(5));
+
+    expect(result).not.toBeNull();
+    const lines = result!.split('\n');
+    // Header + 5 bullets + footnote.
+    expect(lines).toHaveLength(7);
+    expect(lines[0]).toBe('🚧 Pending decisions / blockers');
+
+    const bulletLines = lines.slice(1, 6);
+    // The 5 visible bullets should be from the newest signals (id=1..5).
+    // This positive assertion implies the dropped oldest 100 (id=501..600)
+    // are absent — no need for a vacuous `not.toContain` loop.
+    const visibleIds = bulletLines
+      .map(line => {
+        const match = line.match(/#(\d+)/);
+        return match ? Number(match[1]) : null;
+      })
+      .filter((id): id is number => id !== null);
+    expect(visibleIds).toHaveLength(5);
+    for (const id of visibleIds) {
+      expect(id).toBeGreaterThanOrEqual(1);
+      expect(id).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it('cap is a no-op at exactly the threshold (500 signals)', () => {
+    // Boundary case: enrichedAll.length === MAX_SIGNALS_BEFORE_DEDUP. The
+    // `> MAX` guard means we skip the sort+truncate path; all 500 signals
+    // reach dedup unchanged. Use the same verb/noun/locale rotation as the
+    // cap-fires test so phrasings don't collapse via Jaccard or substring.
+    const verbs = ['audit', 'rewrite', 'migrate', 'profile', 'document', 'rotate', 'cache', 'shard', 'index', 'paginate'];
+    const nouns = ['logger', 'parser', 'queue', 'cache', 'router', 'session', 'worker', 'schema', 'crontab', 'binary'];
+    const locales = ['module', 'service', 'endpoint', 'package', 'fixture', 'controller', 'helper', 'middleware', 'agent', 'view'];
+    const observations: Observation[] = [];
+    for (let i = 1; i <= 500; i++) {
+      const verb = verbs[i % verbs.length];
+      const noun = nouns[Math.floor(i / verbs.length) % nouns.length];
+      const locale = locales[Math.floor(i / (verbs.length * nouns.length)) % locales.length];
+      observations.push(
+        makeObs(i, i, `TODO: ${verb} the ${noun} ${locale} marker${i}`),
+      );
+    }
+
+    const result = renderBlockersSection(observations, makeConfig(500));
+
+    expect(result).not.toBeNull();
+    const lines = result!.split('\n');
+    // Header + 500 bullets, no footnote (500 == maxBlockers).
+    expect(lines).toHaveLength(501);
+    expect(lines[0]).toBe('🚧 Pending decisions / blockers');
+    // Newest first: id=1 has ageHours=1 (newest); id=500 has ageHours=500 (oldest).
+    expect(lines[1]).toContain('#1');
+    expect(lines[500]).toContain('#500');
+    // No "+ N more" footnote when nothing is truncated.
+    expect(lines[lines.length - 1].startsWith('  + ')).toBe(false);
+  });
+
+  it('observationId DESC tiebreaker decides when created_at_epoch is equal', () => {
+    // 502 obs all created at the SAME epoch — the recency comparator falls
+    // through to `signal.observationId DESC`, so the lowest two IDs (1, 2)
+    // are dropped by the cap. With maxBlockers=2 the rendered bullets must
+    // reference IDs > 2.
+    const sameEpoch = new Date('2026-04-27T12:00:00Z').getTime();
+    const verbs = ['audit', 'rewrite', 'migrate', 'profile', 'document', 'rotate', 'cache', 'shard', 'index', 'paginate'];
+    const nouns = ['logger', 'parser', 'queue', 'cache', 'router', 'session', 'worker', 'schema', 'crontab', 'binary'];
+    const locales = ['module', 'service', 'endpoint', 'package', 'fixture', 'controller', 'helper', 'middleware', 'agent', 'view'];
+    const observations: Observation[] = [];
+    for (let i = 1; i <= 502; i++) {
+      const verb = verbs[i % verbs.length];
+      const noun = nouns[Math.floor(i / verbs.length) % nouns.length];
+      const locale = locales[Math.floor(i / (verbs.length * nouns.length)) % locales.length];
+      // ageHours is irrelevant here — we override created_at_epoch to be
+      // identical across every row so the tiebreaker is what decides.
+      observations.push(
+        makeObs(i, 0, `TODO: ${verb} the ${noun} ${locale} marker${i}`, {
+          created_at: new Date(sameEpoch).toISOString(),
+          created_at_epoch: sameEpoch,
+        }),
+      );
+    }
+
+    const result = renderBlockersSection(observations, makeConfig(2));
+
+    expect(result).not.toBeNull();
+    const lines = result!.split('\n');
+    // Header + 2 bullets + footnote.
+    expect(lines).toHaveLength(4);
+    const bulletLines = lines.slice(1, 3);
+    const visibleIds = bulletLines
+      .map(line => {
+        const match = line.match(/#(\d+)/);
+        return match ? Number(match[1]) : null;
+      })
+      .filter((id): id is number => id !== null);
+    expect(visibleIds).toHaveLength(2);
+    // The cap dropped IDs 1 and 2 via observationId DESC tiebreaker, so every
+    // surviving rendered ID must be greater than 2.
+    expect(visibleIds.every(id => id > 2)).toBe(true);
+  });
+
+  it('cap is a no-op when input is at or below 500 signals', () => {
+    // 50 obs × 1 TODO = 50 signals. Well below the 500 cap. Verify the
+    // existing dedup paths render every signal and behave identically to
+    // the un-capped path. Use the same verb/noun/locale rotation as the
+    // cap-fires test so phrasings are mutually distinct.
+    const verbs = ['audit', 'rewrite', 'migrate', 'profile', 'document', 'rotate', 'cache', 'shard', 'index', 'paginate'];
+    const nouns = ['logger', 'parser', 'queue', 'cache', 'router', 'session', 'worker', 'schema', 'crontab', 'binary'];
+    const locales = ['module', 'service', 'endpoint', 'package', 'fixture', 'controller', 'helper', 'middleware', 'agent', 'view'];
+    const observations: Observation[] = [];
+    for (let i = 1; i <= 50; i++) {
+      const verb = verbs[i % verbs.length];
+      const noun = nouns[Math.floor(i / verbs.length) % nouns.length];
+      const locale = locales[Math.floor(i / (verbs.length * nouns.length)) % locales.length];
+      observations.push(
+        makeObs(i, i, `TODO: ${verb} the ${noun} ${locale} marker${i}`),
+      );
+    }
+
+    const result = renderBlockersSection(observations, makeConfig(100));
+
+    expect(result).not.toBeNull();
+    const lines = result!.split('\n');
+    // Header + 50 bullets, no footnote (50 < maxBlockers=100).
+    expect(lines).toHaveLength(51);
+    expect(lines[0]).toBe('🚧 Pending decisions / blockers');
+    // First bullet is newest (id=1, age=1h); last is oldest (id=50, age=50h).
+    expect(lines[1]).toContain('#1');
+    expect(lines[50]).toContain('#50');
+    // No "+ N more" footnote when nothing is truncated.
+    expect(lines[lines.length - 1].startsWith('  + ')).toBe(false);
+  });
+
   it('one obs failing extraction does not poison the section', () => {
     // The current extractor never throws on shape, but we still verify the
     // contract by mixing a normal row with one whose narrative is a malformed

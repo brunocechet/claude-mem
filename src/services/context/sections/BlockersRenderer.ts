@@ -30,6 +30,23 @@ const TRUNCATION_SUFFIX = '…';
 const JACCARD_THRESHOLD = 0.7;
 
 /**
+ * Defensive cap on signals fed into dedupeSignals.
+ *
+ * dedupeSignals is O(S²) in the count of total ActionableSignals across all
+ * observations. In practice S is well under 100 for any real project, but
+ * a pathologically signal-dense observation set (e.g. 50 TODOs per
+ * narrative × 200 obs = 10k signals → 50M comparisons) would slow the hook
+ * past acceptable latency. The cap keeps worst-case latency bounded
+ * without affecting normal operation.
+ *
+ * Newer signals win when truncating: signals are sorted by their owning
+ * observation's created_at_epoch DESC and the cap is applied before dedup.
+ *
+ * See docs/CONTEXT-DIGEST-V2-FOLLOWUPS-PLAN.md item 2.
+ */
+const MAX_SIGNALS_BEFORE_DEDUP = 500;
+
+/**
  * One enriched signal carrying everything we need to render and dedupe.
  *
  * Carrying the parent observation lets us read `created_at_epoch` and
@@ -266,8 +283,26 @@ export function renderBlockersSection(
 
   if (enrichedAll.length === 0) return null;
 
+  // Step 1.5: defensive cap before the O(S²) dedup loop. When the input
+  // exceeds MAX_SIGNALS_BEFORE_DEDUP we sort by recency (created_at_epoch
+  // DESC, tiebreaker observationId DESC) and keep only the newest. Oldest
+  // signals are dropped first so the most relevant blockers always survive.
+  // This is a no-op at normal scale; only fires on pathologically dense input.
+  let prepared: EnrichedSignal[] = enrichedAll;
+  if (enrichedAll.length > MAX_SIGNALS_BEFORE_DEDUP) {
+    prepared = enrichedAll
+      .slice()
+      .sort((a, b) => {
+        if (a.obs.created_at_epoch !== b.obs.created_at_epoch) {
+          return b.obs.created_at_epoch - a.obs.created_at_epoch;
+        }
+        return b.signal.observationId - a.signal.observationId;
+      })
+      .slice(0, MAX_SIGNALS_BEFORE_DEDUP);
+  }
+
   // Step 2: dedupe.
-  const deduped = dedupeSignals(enrichedAll);
+  const deduped = dedupeSignals(prepared);
   if (deduped.length === 0) return null;
 
   // Step 3: sort by recency DESC, tiebreaker by observation id DESC.
