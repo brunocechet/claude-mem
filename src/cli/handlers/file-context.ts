@@ -9,10 +9,11 @@ import type { EventHandler, NormalizedHookInput, HookResult } from '../types.js'
 import { executeWithWorkerFallback, isWorkerFallback } from '../../shared/worker-utils.js';
 import { logger } from '../../utils/logger.js';
 import { parseJsonArray } from '../../shared/timeline-formatting.js';
-import { statSync } from 'fs';
+import { appendFileSync, statSync } from 'fs';
 import path from 'path';
 import { shouldTrackProject } from '../../shared/should-track-project.js';
 import { getProjectContext } from '../../utils/project-name.js';
+import { FILE_CONTEXT_EVENTS_PATH } from '../../shared/paths.js';
 
 /** Skip the gate for files smaller than this — timeline overhead exceeds file read cost. */
 const FILE_READ_GATE_MIN_BYTES = 1_500;
@@ -22,6 +23,55 @@ const FETCH_LOOKAHEAD_LIMIT = 40;
 
 /** Maximum observations to show in the timeline. */
 const DISPLAY_LIMIT = 15;
+
+/**
+ * Truncation gate: when an unconstrained Read targets a >FILE_READ_GATE_MIN_BYTES
+ * file with prior observations, the hook normally forces limit:1 so the agent
+ * leans on the timeline instead of a full re-read. That tradeoff only pays off
+ * when the timeline is actually informative — sparse or stale timelines just
+ * waste a Read round-trip and bias the agent toward stopping investigation.
+ *
+ * Truncate only when both hold:
+ *   - dedupedObservations.length >= MIN_OBS_FOR_TRUNCATION
+ *   - >=MIN_RECENT_OBS_FOR_TRUNCATION of those landed in the last RECENCY_WINDOW_DAYS
+ *
+ * Otherwise inject the timeline as data but let the Read proceed normally.
+ * Tune via `~/.claude-mem/file-context-events.jsonl` telemetry; see
+ * scripts/analyze-file-context.mjs and the /api/admin/file-context-stats endpoint.
+ */
+const MIN_OBS_FOR_TRUNCATION = 3;
+const MIN_RECENT_OBS_FOR_TRUNCATION = 1;
+const RECENCY_WINDOW_DAYS = 60;
+const RECENCY_WINDOW_MS = RECENCY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+interface FileContextEvent {
+  ts: number;
+  file: string;
+  size: number | null;
+  obs_count: number;
+  recent_obs_count: number;
+  truncated: boolean;
+  session_id: string | null;
+  qualified_for_truncation: boolean;
+  was_targeted_read: boolean;
+}
+
+/**
+ * Append a file-context event to the JSONL telemetry log.
+ *
+ * Single-writer-per-process semantics: each agent process appends its own
+ * events; no locking needed (no read-modify-write). Failures are silent —
+ * telemetry must never break the hook path.
+ */
+function recordFileContextEvent(event: FileContextEvent): void {
+  try {
+    appendFileSync(FILE_CONTEXT_EVENTS_PATH, JSON.stringify(event) + '\n', 'utf-8');
+  } catch (err) {
+    logger.debug('HOOK', 'Failed to record file-context event', {
+      error: err instanceof Error ? err.message : String(err)
+    });
+  }
+}
 
 const TYPE_ICONS: Record<string, string> = {
   decision: '\u2696\uFE0F',
@@ -138,18 +188,33 @@ function formatFileTimeline(
   }).toLowerCase().replace(' ', '');
   const currentTimezone = now.toLocaleTimeString('en-US', { timeZoneName: 'short' }).split(' ').pop();
 
+  // Header is purely descriptive — state the data, never tell the agent whether
+  // the timeline is "enough." Leading-question framing ("Already know enough?")
+  // biased agents toward stopping investigation prematurely; replaced with a
+  // neutral menu of options shown only when the Read was forcibly truncated.
+  const totalObs = observations.length;
+  const obsWord = totalObs === 1 ? 'observation' : 'observations';
   const headerLine = truncated
-    ? `This file has prior observations. Only line 1 was read to save tokens.`
-    : `This file has prior observations. The requested section was read normally.`;
+    ? `Read returned line 1 only — claude-mem injected a timeline of ${totalObs} prior ${obsWord} on this file (below). Read was NOT performed in full.`
+    : `Read completed normally — claude-mem also injected a timeline of ${totalObs} prior ${obsWord} on this file (below).`;
 
   const lines: string[] = [
     `Current: ${currentDate} ${currentTime} ${currentTimezone}`,
     headerLine,
-    `- **Already know enough?** The timeline below may be all you need (semantic priming).`,
-    `- **Need details?** get_observations([IDs]) — ~300 tokens each.`,
-    `- **Need full file?** Read again with offset/limit for the section you need.`,
-    `- **Need to edit?** Edit works — the file is registered as read. Use smart_outline("${safePath}") for line numbers.`,
   ];
+
+  // For truncated reads, list recovery options as a neutral menu — the agent
+  // chooses what fits the task. No "you can stop now" suggestion: the agent
+  // is in a better position than the hook to judge depth-vs-breadth tradeoffs.
+  if (truncated) {
+    lines.push(
+      `Options to proceed:`,
+      `- Read again with offset/limit for the section you need.`,
+      `- get_observations([IDs]) — ~300 tokens per observation, full body.`,
+      `- smart_outline("${safePath}") — line numbers without reading file content.`,
+      `- Edit works without re-reading — the file is registered as read.`,
+    );
+  }
 
   for (const [day, dayObservations] of sortedDays) {
     // Sort within each day chronologically (deduplicateObservations reorders by specificity)
@@ -261,16 +326,44 @@ export const fileContextHandler: EventHandler = {
       return { continue: true, suppressOutput: true };
     }
 
-    // Unconstrained → truncate to 1 line; targeted → preserve offset/limit.
-    const truncated = !isTargetedRead;
+    // Truncation gate (see MIN_OBS_FOR_TRUNCATION docs above): only force a
+    // re-read when the timeline is dense and recent enough to plausibly let
+    // the agent skip the full read. Sparse/stale timelines still get injected
+    // as data, but the Read proceeds normally.
+    const now = Date.now();
+    const recentObsCount = dedupedObservations.filter(
+      o => now - o.created_at_epoch < RECENCY_WINDOW_MS
+    ).length;
+    const timelineQualifiesForTruncation =
+      dedupedObservations.length >= MIN_OBS_FOR_TRUNCATION
+      && recentObsCount >= MIN_RECENT_OBS_FOR_TRUNCATION;
+    const truncated = !isTargetedRead && timelineQualifiesForTruncation;
+
     const timeline = formatFileTimeline(dedupedObservations, filePath, truncated);
     const updatedInput: Record<string, unknown> = { file_path: filePath };
     if (isTargetedRead) {
       if (userOffset !== undefined) updatedInput.offset = userOffset;
       if (userLimit !== undefined) updatedInput.limit = userLimit;
-    } else {
+    } else if (truncated) {
       updatedInput.limit = 1;
     }
+    // Else: unconstrained read with non-qualifying timeline — inject context
+    // but pass no limit, so the Read returns the full file.
+
+    // Telemetry: record one event per fired hook so we can tune gate thresholds
+    // from data. Bounded growth: see scripts/analyze-file-context.mjs and
+    // /api/admin/file-context-stats for analysis. Never fails the hook path.
+    void recordFileContextEvent({
+      ts: now,
+      file: relativePath,
+      size: typeof toolInput?.file_size === 'number' ? toolInput.file_size as number : null,
+      obs_count: dedupedObservations.length,
+      recent_obs_count: recentObsCount,
+      truncated,
+      session_id: input.sessionId ?? null,
+      qualified_for_truncation: timelineQualifiesForTruncation,
+      was_targeted_read: isTargetedRead,
+    });
 
     return {
       hookSpecificOutput: {

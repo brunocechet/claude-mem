@@ -20,6 +20,7 @@ import { errorHandler, notFoundHandler } from './ErrorHandler.js';
 import { getSupervisor } from '../../supervisor/index.js';
 import { isPidAlive } from '../../supervisor/process-registry.js';
 import { ENV_PREFIXES, ENV_EXACT_MATCHES } from '../../supervisor/env-sanitizer.js';
+import { FILE_CONTEXT_EVENTS_PATH } from '../../shared/paths.js';
 
 /**
  * Plan 06 Phase 6 — instruction content (SKILL.md + ALLOWED_OPERATIONS .md
@@ -394,6 +395,76 @@ export class Server {
           deadProcessPids,
           envClean,
         },
+      });
+    });
+
+    // file-context-stats endpoint - aggregated telemetry from the PreToolUse:Read hook.
+    // Computes stats on the fly from the JSONL log so the source of truth stays the
+    // append-only file. Honors ?days=N (default 7, max 365). Localhost-only.
+    this.app.get('/api/admin/file-context-stats', requireLocalhost, (req: Request, res: Response) => {
+      const days = Math.max(1, Math.min(365, parseInt(String(req.query.days ?? '7'), 10) || 7));
+      const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+      const REREAD_WINDOW_MS = 5 * 60 * 1000;
+
+      if (!fs.existsSync(FILE_CONTEXT_EVENTS_PATH)) {
+        res.json({ window_days: days, total_events: 0, message: 'No telemetry recorded yet.' });
+        return;
+      }
+
+      const events: Array<{
+        ts: number;
+        file: string;
+        obs_count: number;
+        truncated: boolean;
+        session_id: string | null;
+      }> = [];
+      try {
+        const raw = fs.readFileSync(FILE_CONTEXT_EVENTS_PATH, 'utf-8');
+        for (const line of raw.split('\n')) {
+          if (!line) continue;
+          try {
+            const ev = JSON.parse(line);
+            if (ev.ts >= cutoff) events.push(ev);
+          } catch { /* skip malformed */ }
+        }
+      } catch (err) {
+        res.status(500).json({ error: 'Failed to read telemetry log', message: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+
+      events.sort((a, b) => a.ts - b.ts);
+
+      const grouped = new Map<string, typeof events>();
+      for (const ev of events) {
+        const key = `${ev.session_id ?? 'no-session'}|${ev.file}`;
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key)!.push(ev);
+      }
+
+      let truncatedTotal = 0;
+      let truncatedRereadInWindow = 0;
+      let truncatedNoFollowUp = 0;
+      for (const [, sessFileEvents] of grouped) {
+        for (let i = 0; i < sessFileEvents.length; i++) {
+          const ev = sessFileEvents[i];
+          if (!ev.truncated) continue;
+          truncatedTotal++;
+          const next = sessFileEvents[i + 1];
+          if (next && next.ts - ev.ts < REREAD_WINDOW_MS) {
+            truncatedRereadInWindow++;
+          } else {
+            truncatedNoFollowUp++;
+          }
+        }
+      }
+
+      res.json({
+        window_days: days,
+        total_events: events.length,
+        truncated_total: truncatedTotal,
+        truncated_rate: events.length > 0 ? truncatedTotal / events.length : 0,
+        reread_rate: truncatedTotal > 0 ? truncatedRereadInWindow / truncatedTotal : 0,
+        silent_rate: truncatedTotal > 0 ? truncatedNoFollowUp / truncatedTotal : 0,
       });
     });
   }

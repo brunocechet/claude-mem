@@ -70,6 +70,11 @@ export const MODES_DIR = join(DATA_DIR, 'modes');
 export const USER_SETTINGS_PATH = join(DATA_DIR, 'settings.json');
 export const AUTH_TOKEN_PATH = join(DATA_DIR, 'auth.token');
 export const OUTBOX_PATH = join(DATA_DIR, 'outbox.jsonl');
+// Append-only event log for the PreToolUse:Read hook. One JSON line per
+// invocation. Used by scripts/analyze-file-context.mjs and the worker's
+// /api/admin/file-context-stats endpoint to tune gate thresholds in
+// src/cli/handlers/file-context.ts based on real re-read behavior.
+export const FILE_CONTEXT_EVENTS_PATH = join(DATA_DIR, 'file-context-events.jsonl');
 export const DB_PATH = join(DATA_DIR, 'claude-mem.db');
 export const VECTOR_DB_DIR = join(DATA_DIR, 'vector-db');
 
