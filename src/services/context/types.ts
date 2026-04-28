@@ -51,6 +51,12 @@ export interface ContextConfig {
   // 4-line economics block). Default false → collapsed single-line economics, no boilerplate.
   // Acts as a rollback flag for the context digest v2 cuts.
   verbose: boolean;
+  // When true (default), render the live git state header (📍 project · branch · dirty · …)
+  // at the very top of the digest. Set to false to revert to pre-Phase-2 layout.
+  showStateHeader: boolean;
+  // When true (default), reorder observations by TYPE_WEIGHT × recencyDecay so high-signal
+  // rows surface first. When false, fall back to chronological ordering.
+  priorityRanking: boolean;
 }
 
 /**

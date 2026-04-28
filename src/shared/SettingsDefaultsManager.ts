@@ -51,6 +51,10 @@ export interface SettingsDefaults {
   CLAUDE_MEM_CONTEXT_STALENESS_DAYS: string;
   // Verbose boilerplate (rollback flag for context digest v2)
   CLAUDE_MEM_CONTEXT_VERBOSE: string;
+  // Live git state header at top of digest (Phase 2 of context digest v2)
+  CLAUDE_MEM_CONTEXT_STATE_HEADER: string;
+  // Type-weighted priority ranking of observations (Phase 2 of context digest v2)
+  CLAUDE_MEM_CONTEXT_PRIORITY_RANKING: string;
   // Feature Toggles
   CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: string;
   CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: string;
@@ -134,6 +138,10 @@ export class SettingsDefaultsManager {
     CLAUDE_MEM_CONTEXT_STALENESS_DAYS: '7',
     // Verbose boilerplate ('true' restores legend/column-key/economics blocks for rollback; default 'false' uses collapsed shape)
     CLAUDE_MEM_CONTEXT_VERBOSE: 'false',
+    // Live git state header (project · branch · dirty · ahead/behind · last commit) at top of digest
+    CLAUDE_MEM_CONTEXT_STATE_HEADER: 'true',
+    // Type-weighted ranking pass (decision/security_alert/bugfix > … > discovery, recency decay 7d half-life)
+    CLAUDE_MEM_CONTEXT_PRIORITY_RANKING: 'true',
     // Feature Toggles
     CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: 'true',
     CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: 'false',

@@ -345,3 +345,80 @@ export function getFullObservationIds(observations: Observation[], count: number
       .map(obs => obs.id)
   );
 }
+
+/**
+ * Type-weight table for priority ranking.
+ *
+ * Higher numbers surface first when ties on recency are broken. Unknown
+ * observation types fall back to the discovery weight (the most generic
+ * "I learned something" bucket — see CLAUDE.md).
+ */
+const TYPE_WEIGHT: Record<string, number> = {
+  decision: 10,
+  security_alert: 9,
+  bugfix: 8,
+  feature: 6,
+  change: 4,
+  refactor: 4,
+  security_note: 3,
+  discovery: 1,
+};
+
+// Default weight when observation type is not recognized; matches discovery's weight.
+const UNKNOWN_TYPE_WEIGHT = 1;
+const RECENCY_HALF_LIFE_DAYS = 7;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Half-life recency decay. Today → 1.0, 7d ago → 0.5, 14d ago → 0.25.
+ *
+ * Negative ages (clock skew, future-dated rows) are clamped to 0 so they
+ * don't get artificially boosted above today's score.
+ */
+function recencyDecay(ageDays: number): number {
+  const safeAge = Math.max(0, ageDays);
+  return Math.pow(0.5, safeAge / RECENCY_HALF_LIFE_DAYS);
+}
+
+/**
+ * Compute the priority score for one observation.
+ * Pure: depends only on the row's `type` and `created_at_epoch`.
+ */
+function priorityScore(obs: Observation, nowEpoch: number): number {
+  const weight = TYPE_WEIGHT[obs.type] ?? UNKNOWN_TYPE_WEIGHT;
+  const ageDays = (nowEpoch - obs.created_at_epoch) / MS_PER_DAY;
+  return weight * recencyDecay(ageDays);
+}
+
+/**
+ * Reorder observations by priority (TYPE_WEIGHT × recency decay), most
+ * relevant first. Stable: rows with the same score keep their input
+ * order, with `created_at_epoch` descending as the explicit tiebreaker.
+ *
+ * Pure: returns a new array; the input is not mutated.
+ *
+ * @param observations - Source list (caller-owned, untouched)
+ * @param now - Optional reference time (millis since epoch). Defaults to
+ *              `Date.now()`. Tests inject a fixed clock here.
+ */
+export function rankByPriority(
+  observations: ReadonlyArray<Observation>,
+  now: number = Date.now(),
+): Observation[] {
+  // Decorate with stable index so we can preserve input order on score ties.
+  const decorated = observations.map((obs, index) => ({
+    obs,
+    index,
+    score: priorityScore(obs, now),
+  }));
+
+  decorated.sort((a, b) => {
+    if (a.score !== b.score) return b.score - a.score;
+    if (a.obs.created_at_epoch !== b.obs.created_at_epoch) {
+      return b.obs.created_at_epoch - a.obs.created_at_epoch;
+    }
+    return a.index - b.index;
+  });
+
+  return decorated.map(entry => entry.obs);
+}

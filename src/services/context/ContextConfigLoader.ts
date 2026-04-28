@@ -43,5 +43,7 @@ export function loadContextConfig(): ContextConfig {
       return days > 0 ? Date.now() - days * 24 * 60 * 60 * 1000 : 0;
     })(),
     verbose: settings.CLAUDE_MEM_CONTEXT_VERBOSE === 'true',
+    showStateHeader: settings.CLAUDE_MEM_CONTEXT_STATE_HEADER === 'true',
+    priorityRanking: settings.CLAUDE_MEM_CONTEXT_PRIORITY_RANKING === 'true',
   };
 }

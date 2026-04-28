@@ -24,8 +24,10 @@ import {
   prepareSummariesForTimeline,
   buildTimeline,
   getFullObservationIds,
+  rankByPriority,
 } from './ObservationCompiler.js';
 import { renderHeader } from './sections/HeaderRenderer.js';
+import { renderStateHeader } from './sections/StateRenderer.js';
 import { renderTimeline } from './sections/TimelineRenderer.js';
 import { shouldShowSummary, renderSummaryFields } from './sections/SummaryRenderer.js';
 import { renderPreviouslySection, renderFooter } from './sections/FooterRenderer.js';
@@ -84,12 +86,20 @@ function buildContextOutput(
   config: ContextConfig,
   cwd: string,
   sessionId: string | undefined,
-  forHuman: boolean
+  forHuman: boolean,
+  stateHeader: string | null
 ): string {
   const output: string[] = [];
 
   // Calculate token economics
   const economics = calculateTokenEconomics(observations);
+
+  // Render live git state header above the existing header line.
+  // Inserted as raw lines so it sits before the "[project] recent context" banner
+  // without disrupting the existing renderHeader flow.
+  if (stateHeader) {
+    output.push(stateHeader, '');
+  }
 
   // Render header section
   output.push(...renderHeader(project, economics, config, forHuman));
@@ -157,17 +167,31 @@ export async function generateContext(
 
   try {
     // Query data for all projects (supports worktree: parent + worktree combined)
-    const observations = projects.length > 1
+    const observationsRaw = projects.length > 1
       ? queryObservationsMulti(db, projects, config)
       : queryObservations(db, project, config);
     const summaries = projects.length > 1
       ? querySummariesMulti(db, projects, config)
       : querySummaries(db, project, config);
 
-    // Handle empty state
+    // Type-weighted ranking pass: surface high-signal observations first.
+    // Falls back to chronological (raw) order when the flag is off.
+    const observations = config.priorityRanking
+      ? rankByPriority(observationsRaw)
+      : observationsRaw;
+
+    // Handle empty state before computing the state header — renderStateHeader
+    // shells out to git up to four times, and that work is wasted if we're
+    // about to return the empty-state placeholder.
     if (observations.length === 0 && summaries.length === 0) {
       return renderEmptyState(project, forHuman);
     }
+
+    // Live git state header for the primary project. Returns null on any
+    // failure (not a git repo, git missing, command timeout, etc.).
+    const stateHeader = config.showStateHeader
+      ? renderStateHeader(cwd, project)
+      : null;
 
     // Build and return context
     const output = buildContextOutput(
@@ -177,7 +201,8 @@ export async function generateContext(
       config,
       cwd,
       input?.session_id,
-      forHuman
+      forHuman,
+      stateHeader
     );
 
     // Apply token budget cap (0 = no cap, full mode bypasses)
