@@ -201,11 +201,16 @@ child.on('error', (err) => {
 });
 
 child.on('close', (code, signal) => {
-  // Fix #1505: When the "start" subcommand forks a daemon, the parent bun
-  // process may be killed by signal (e.g. SIGKILL, exit code 137). The daemon
-  // is running fine — treat signal-based exits for "start" as success.
-  if ((signal || code > 128) && args.includes('start')) {
-    process.exit(0);
+  // Per claude-mem exit-code contract (see CLAUDE.md): hooks must exit 0 or 2
+  // only. Anything else triggers Claude Code's "Failed with non-blocking
+  // status code" warning and (on Windows) keeps terminal tabs open. Pass
+  // through 0 and 2 unchanged; clamp every other outcome to 0.
+  // - Fix #1505: signal-killed parents during `start` (daemon survives).
+  // - Also covers OOM-kills, abnormal exits, and silent process.exit(1)
+  //   calls from transitive deps before hook-command.ts can catch them
+  //   (hook-command.ts:93-94 suppresses stderr, so such exits are mute).
+  if (code === 0 || code === 2) {
+    process.exit(code);
   }
-  process.exit(code || 0);
+  process.exit(0);
 });
