@@ -9,7 +9,10 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { rankByPriority } from '../../src/services/context/ObservationCompiler.js';
+import {
+  rankByPriority,
+  scoreObservations,
+} from '../../src/services/context/ObservationCompiler.js';
 import type { Observation } from '../../src/services/context/types.js';
 
 const NOW = 1_735_732_800_000; // fixed reference time
@@ -190,5 +193,53 @@ describe('rankByPriority', () => {
     // the (newer) future-dated row wins. The point of clamping is that
     // it doesn't beat the same row by a wider margin than today's.
     expect(result.map(o => o.id)).toEqual([1, 2]);
+  });
+
+  // ---------- precomputedScores (Item 3 of v2 follow-ups) ----------
+
+  it('produces identical ranking with vs. without precomputedScores', () => {
+    // Mixed types and ages, including a future-dated row to exercise clamping.
+    const obs: Observation[] = [
+      makeObs(1, 'discovery', 0),
+      makeObs(2, 'security_note', 5),
+      makeObs(3, 'change', 1),
+      makeObs(4, 'refactor', 2),
+      makeObs(5, 'feature', 7),
+      makeObs(6, 'bugfix', 3),
+      makeObs(7, 'security_alert', 14),
+      makeObs(8, 'decision', 0),
+      makeObs(9, 'decision', -2), // future-dated
+      makeObs(10, 'totally_unknown_type', 1),
+    ];
+
+    const scoreMap = scoreObservations(obs, NOW);
+    const withMap = rankByPriority(obs, NOW, scoreMap);
+    const withoutMap = rankByPriority(obs, NOW);
+
+    expect(withMap).toEqual(withoutMap);
+  });
+
+  it('falls back to per-row scoring when an obs id is missing from the map', () => {
+    const obs: Observation[] = [
+      makeObs(1, 'discovery', 0),
+      makeObs(2, 'decision', 1),
+      makeObs(3, 'bugfix', 2),
+      makeObs(4, 'feature', 0),
+    ];
+
+    // Drop the would-be winner (obs 2, decision @ 1d). The function must
+    // still place it correctly by computing its score on the fly.
+    const fullMap = scoreObservations(obs, NOW);
+    const partialMap = new Map(fullMap);
+    partialMap.delete(2);
+    expect(partialMap.has(2)).toBe(false);
+
+    const partial = rankByPriority(obs, NOW, partialMap);
+    const baseline = rankByPriority(obs, NOW);
+
+    expect(partial).toEqual(baseline);
+
+    // Sanity: decision @ 1d (~9.05) > bugfix @ 2d (~6.56) > feature @ 0d (6) > discovery @ 0d (1).
+    expect(partial.map(o => o.id)).toEqual([2, 3, 4, 1]);
   });
 });
