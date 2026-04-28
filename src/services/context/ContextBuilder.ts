@@ -81,8 +81,15 @@ function renderEmptyState(project: string, forHuman: boolean): string {
 
 /**
  * Build context output from loaded data
+ *
+ * Pure synchronous orchestrator: takes pre-loaded observations + summaries
+ * and the resolved phase-2/phase-3 inputs (state header, blockers section,
+ * clusters) and assembles the final digest string.
+ *
+ * Exported for end-to-end testing — production callers should use
+ * `generateContext`, which queries the SessionStore and prepares inputs.
  */
-function buildContextOutput(
+export function buildContextOutput(
   project: string,
   observations: Observation[],
   summaries: SessionSummary[],
