@@ -42,8 +42,13 @@ export function renderAgentHeader(project: string): string[] {
 
 /**
  * Render agent legend
+ *
+ * Verbose mode (rollback): full legend with format/fetch hints.
+ * Default (collapsed): empty — agent learns emojis from CLAUDE.md once, not every session.
  */
-export function renderAgentLegend(): string[] {
+export function renderAgentLegend(verbose: boolean = false): string[] {
+  if (!verbose) return [];
+
   const mode = ModeManager.getInstance().getActiveMode();
   const typeLegendItems = mode.observation_types.map(t => `${t.emoji}${t.id}`).join(' ');
 
@@ -57,44 +62,66 @@ export function renderAgentLegend(): string[] {
 
 /**
  * Render agent column key - no longer needed in compact format
+ *
+ * Always empty in current shape; kept verbose-aware for symmetry with HumanFormatter.
  */
-export function renderAgentColumnKey(): string[] {
+export function renderAgentColumnKey(_verbose: boolean = false): string[] {
   return [];
 }
 
 /**
  * Render agent context index instructions - folded into legend
+ *
+ * Always empty; kept verbose-aware for symmetry.
  */
-export function renderAgentContextIndex(): string[] {
+export function renderAgentContextIndex(_verbose: boolean = false): string[] {
   return [];
 }
 
 /**
  * Render agent context economics
+ *
+ * Verbose mode (rollback): full Stats line with read/work/savings parts.
+ * Default (collapsed): single line "📊 N obs · X% recall savings · use mem-search skill for deeper history"
+ * (savings clause omitted when 0/unknown).
  */
 export function renderAgentContextEconomics(
   economics: TokenEconomics,
   config: ContextConfig
 ): string[] {
-  const output: string[] = [];
+  if (config.verbose) {
+    const output: string[] = [];
 
-  const parts: string[] = [
-    `${economics.totalObservations} obs (${economics.totalReadTokens.toLocaleString()}t read)`,
-    `${economics.totalDiscoveryTokens.toLocaleString()}t work`
-  ];
+    const parts: string[] = [
+      `${economics.totalObservations} obs (${economics.totalReadTokens.toLocaleString()}t read)`,
+      `${economics.totalDiscoveryTokens.toLocaleString()}t work`
+    ];
 
-  if (economics.totalDiscoveryTokens > 0 && (config.showSavingsAmount || config.showSavingsPercent)) {
-    if (config.showSavingsPercent) {
-      parts.push(`${economics.savingsPercent}% savings`);
-    } else if (config.showSavingsAmount) {
-      parts.push(`${economics.savings.toLocaleString()}t saved`);
+    if (economics.totalDiscoveryTokens > 0 && (config.showSavingsAmount || config.showSavingsPercent)) {
+      if (config.showSavingsPercent) {
+        parts.push(`${economics.savingsPercent}% savings`);
+      } else if (config.showSavingsAmount) {
+        parts.push(`${economics.savings.toLocaleString()}t saved`);
+      }
     }
+
+    output.push(`Stats: ${parts.join(' | ')}`);
+    output.push('');
+
+    return output;
   }
 
-  output.push(`Stats: ${parts.join(' | ')}`);
-  output.push('');
+  // Collapsed shape: single line.
+  const segments: string[] = [`${economics.totalObservations} obs`];
+  if (economics.totalDiscoveryTokens > 0 && economics.savingsPercent > 0) {
+    segments.push(`${economics.savingsPercent}% recall savings`);
+  }
+  segments.push('use mem-search skill for deeper history');
 
-  return output;
+  return [
+    `📊 ${segments.join(' · ')}`,
+    ''
+  ];
 }
 
 /**

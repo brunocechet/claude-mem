@@ -47,6 +47,10 @@ export interface ContextConfig {
   stalenessCutoffEpoch: number;
   // When true (full mode / explicit recall), include stale observations
   includeStale: boolean;
+  // When true, render full pre-v2 boilerplate (legend, column key, context-index preamble,
+  // 4-line economics block). Default false → collapsed single-line economics, no boilerplate.
+  // Acts as a rollback flag for the context digest v2 cuts.
+  verbose: boolean;
 }
 
 /**

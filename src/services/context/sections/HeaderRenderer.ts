@@ -29,23 +29,23 @@ export function renderHeader(
 
   // Legend
   if (forHuman) {
-    output.push(...Human.renderHumanLegend());
+    output.push(...Human.renderHumanLegend(config.verbose));
   } else {
-    output.push(...Agent.renderAgentLegend());
+    output.push(...Agent.renderAgentLegend(config.verbose));
   }
 
   // Column key
   if (forHuman) {
-    output.push(...Human.renderHumanColumnKey());
+    output.push(...Human.renderHumanColumnKey(config.verbose));
   } else {
-    output.push(...Agent.renderAgentColumnKey());
+    output.push(...Agent.renderAgentColumnKey(config.verbose));
   }
 
   // Context index instructions
   if (forHuman) {
-    output.push(...Human.renderHumanContextIndex());
+    output.push(...Human.renderHumanContextIndex(config.verbose));
   } else {
-    output.push(...Agent.renderAgentContextIndex());
+    output.push(...Agent.renderAgentContextIndex(config.verbose));
   }
 
   // Context economics

@@ -42,5 +42,6 @@ export function loadContextConfig(): ContextConfig {
       const days = parseInt(settings.CLAUDE_MEM_CONTEXT_STALENESS_DAYS, 10);
       return days > 0 ? Date.now() - days * 24 * 60 * 60 * 1000 : 0;
     })(),
+    verbose: settings.CLAUDE_MEM_CONTEXT_VERBOSE === 'true',
   };
 }

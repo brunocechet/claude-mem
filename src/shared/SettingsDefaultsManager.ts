@@ -49,6 +49,8 @@ export interface SettingsDefaults {
   // Budget & Staleness
   CLAUDE_MEM_CONTEXT_BUDGET: string;
   CLAUDE_MEM_CONTEXT_STALENESS_DAYS: string;
+  // Verbose boilerplate (rollback flag for context digest v2)
+  CLAUDE_MEM_CONTEXT_VERBOSE: string;
   // Feature Toggles
   CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: string;
   CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: string;
@@ -130,6 +132,8 @@ export class SettingsDefaultsManager {
     // Budget & Staleness (0 = disabled)
     CLAUDE_MEM_CONTEXT_BUDGET: '2048',
     CLAUDE_MEM_CONTEXT_STALENESS_DAYS: '7',
+    // Verbose boilerplate ('true' restores legend/column-key/economics blocks for rollback; default 'false' uses collapsed shape)
+    CLAUDE_MEM_CONTEXT_VERBOSE: 'false',
     // Feature Toggles
     CLAUDE_MEM_CONTEXT_SHOW_LAST_SUMMARY: 'true',
     CLAUDE_MEM_CONTEXT_SHOW_LAST_MESSAGE: 'false',
