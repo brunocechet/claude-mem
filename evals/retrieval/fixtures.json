@@ -1,66 +1,66 @@
 {
   "version": "1",
-  "description": "Hand-labeled retrieval quality test cases. expected_ids are SQLite observation IDs from a frozen corpus. Run `node evals/retrieval/run.mjs --capture` to discover IDs for new queries.",
+  "description": "Hand-labeled retrieval quality test cases. expected_ids are SQLite observation IDs from a frozen corpus. Run `node evals/retrieval/run.mjs --capture` to discover candidate IDs and `node evals/retrieval/inspect-candidates.mjs` to view their titles. Labels were assigned conservatively from the top-8 candidates per query (titles that clearly match the query intent).",
   "queries": [
     {
       "id": "q001",
       "query": "bearer token authentication middleware",
-      "expected_ids": [],
+      "expected_ids": [9776, 9985, 9984],
       "description": "Auth middleware implementation obs"
     },
     {
       "id": "q002",
       "query": "SQLite schema migration observation columns",
-      "expected_ids": [],
+      "expected_ids": [9676, 9675, 9674, 9668, 9667, 9666, 9664],
       "description": "DB migration work obs"
     },
     {
       "id": "q003",
       "query": "PostToolUse hook outbox retry",
-      "expected_ids": [],
+      "expected_ids": [9838, 9837, 9836, 9835, 9821],
       "description": "Observation outbox design obs"
     },
     {
       "id": "q004",
       "query": "context budget token truncation",
       "expected_ids": [],
-      "description": "Context budget enforcement obs"
+      "description": "Context budget enforcement obs (no clear matches in top-8 — needs corpus that contains these obs or a better query phrasing)"
     },
     {
       "id": "q005",
       "query": "tree-sitter grammar parse fallback",
-      "expected_ids": [],
+      "expected_ids": [9854, 9853, 9852],
       "description": "Parser fallback implementation obs"
     },
     {
       "id": "q006",
       "query": "SSE broadcaster viewer stream",
       "expected_ids": [],
-      "description": "Viewer SSE stream obs"
+      "description": "Viewer SSE stream obs (no clear matches in top-8 — needs corpus that contains these obs or a better query phrasing)"
     },
     {
       "id": "q007",
       "query": "smart-install stamp deduplication session start",
-      "expected_ids": [],
+      "expected_ids": [9982, 9937, 9649],
       "description": "Install stamp optimization obs"
     },
     {
       "id": "q008",
       "query": "staleness flag stale observation verified_at",
-      "expected_ids": [],
+      "expected_ids": [9686, 9683, 9682, 9681, 9680, 9678, 9677],
       "description": "Staleness TTL implementation obs"
     },
     {
       "id": "q009",
       "query": "worker HTTP port 37777 health check",
-      "expected_ids": [],
+      "expected_ids": [9945, 9944, 9943, 9825],
       "description": "Worker service startup obs"
     },
     {
       "id": "q010",
       "query": "project context excluded tracking filter",
       "expected_ids": [],
-      "description": "Project exclusion logic obs"
+      "description": "Project exclusion logic obs (no clear matches in top-8 — needs corpus that contains these obs or a better query phrasing)"
     }
   ]
 }

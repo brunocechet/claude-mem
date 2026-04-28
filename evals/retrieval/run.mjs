@@ -22,15 +22,21 @@ import { homedir } from 'node:os';
 
 const args = process.argv.slice(2);
 const captureMode = args.includes('--capture');
-const fixturesPath = args[args.indexOf('--fixtures') + 1] ?? new URL('./fixtures.json', import.meta.url).pathname;
-const port = args[args.indexOf('--port') + 1] ?? process.env.CLAUDE_MEM_PORT ?? '37777';
+
+function flagValue(name) {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+const fixturesPath = flagValue('--fixtures') ?? new URL('./fixtures.json', import.meta.url).pathname;
+const port = flagValue('--port') ?? process.env.CLAUDE_MEM_PORT ?? '37777';
 const host = `http://127.0.0.1:${port}`;
 
 function readToken() {
   const envToken = process.env.CLAUDE_MEM_TOKEN?.trim();
   if (envToken) return envToken;
-  const tokenPath = args[args.indexOf('--token') + 1];
-  if (tokenPath) return tokenPath;
+  const tokenArg = flagValue('--token');
+  if (tokenArg) return tokenArg;
   const defaultPath = join(homedir(), '.claude-mem', 'auth.token');
   if (existsSync(defaultPath)) return readFileSync(defaultPath, 'utf-8').trim() || null;
   return null;
@@ -43,10 +49,23 @@ async function search(query, limit = 20) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const url = `${host}/api/search/observations?q=${encodeURIComponent(query)}&limit=${limit}`;
+  const url = `${host}/api/search/observations?query=${encodeURIComponent(query)}&limit=${limit}`;
   const res = await fetch(url, { headers });
   if (!res.ok) throw new Error(`Search failed: ${res.status} ${await res.text()}`);
   const data = await res.json();
+
+  // Endpoint returns MCP-style { content: [{ type: 'text', text: '...' }] } where
+  // results are formatted as a markdown table. IDs appear in the first column as `#<id>`.
+  // Order in the text reflects the ranking returned by the search backend.
+  if (Array.isArray(data.content)) {
+    const text = data.content.map(c => c.text ?? '').join('\n');
+    const ids = [];
+    for (const match of text.matchAll(/^\|\s*#(\d+)\s*\|/gm)) {
+      ids.push(Number(match[1]));
+    }
+    return ids;
+  }
+  // Defensive fallback for any future structured response shape
   return (data.results ?? data.observations ?? []).map(r => r.id ?? r.observation_id);
 }
 

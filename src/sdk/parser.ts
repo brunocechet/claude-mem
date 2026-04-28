@@ -15,6 +15,13 @@ import { ModeManager } from '../services/domain/ModeManager.js';
 
 export interface ParsedObservation {
   type: string;
+  /**
+   * Original LLM-emitted type when it was coerced to a different canonical type
+   * via the synonym table or unknown-type fallback. NULL when no coercion happened.
+   * Stored alongside `type` so the audit trail of model drift is preserved without
+   * polluting the canonical column used by UI/filters/aggregations.
+   */
+  raw_type: string | null;
   title: string | null;
   subtitle: string | null;
   facts: string[];
@@ -137,22 +144,47 @@ function parseObservationBlocks(text: string, correlationId?: string | number): 
     const files_read = extractArrayElements(obsContent, 'files_read', 'file');
     const files_modified = extractArrayElements(obsContent, 'files_modified', 'file');
 
-    // Type fallback: per existing semantics, missing/invalid type degrades to the
-    // first type in the active mode. This is parser-internal validation, not
-    // recovery from a contract violation: every mode's first type is intentionally
-    // the catch-all bucket.
+    // Resolve final type via three-step lookup against the active mode:
+    //   1. exact id match (canonical, no coercion)
+    //   2. case-insensitive synonym match on any observation_type.synonyms[]
+    //   3. mode's unknown_type_fallback (or observation_types[0] if not set)
+    //
+    // raw_type captures the LLM's original emission when coercion happened
+    // (steps 2 or 3). NULL when the LLM produced a canonical id directly.
+    // This preserves model intent for auditing and synonym-table growth without
+    // polluting the canonical `type` column used by UI/filters/aggregations.
+    // WARN on unknowns so scripts/synonym-suggestions.mjs can mine the worker
+    // logs and surface frequent drift cases for promotion to the synonym table.
     const mode = ModeManager.getInstance().getActiveMode();
     const validTypes = mode.observation_types.map(t => t.id);
-    const fallbackType = validTypes[0];
+    const legacyFallback = validTypes[0];
+    const fallbackType = mode.unknown_type_fallback && validTypes.includes(mode.unknown_type_fallback)
+      ? mode.unknown_type_fallback
+      : legacyFallback;
+
     let finalType = fallbackType;
-    if (type) {
-      if (validTypes.includes(type.trim())) {
-        finalType = type.trim();
+    let rawType: string | null = null;
+    const trimmedType = type?.trim();
+
+    if (trimmedType) {
+      if (validTypes.includes(trimmedType)) {
+        finalType = trimmedType;
       } else {
-        logger.error('PARSER', `Invalid observation type: ${type}, using "${fallbackType}"`, { correlationId });
+        const lower = trimmedType.toLowerCase();
+        const synonymHit = mode.observation_types.find(t =>
+          (t.synonyms ?? []).some(s => s.toLowerCase() === lower)
+        );
+        if (synonymHit) {
+          finalType = synonymHit.id;
+          rawType = trimmedType;
+          logger.debug('PARSER', `Coerced observation type via synonym: "${trimmedType}" -> "${finalType}"`, { correlationId });
+        } else {
+          rawType = trimmedType;
+          logger.warn('PARSER', `Invalid observation type: ${trimmedType}, using "${fallbackType}"`, { correlationId });
+        }
       }
     } else {
-      logger.error('PARSER', `Observation missing type field, using "${fallbackType}"`, { correlationId });
+      logger.warn('PARSER', `Observation missing type field, using "${fallbackType}"`, { correlationId });
     }
 
     // Filter out type from concepts array (types and concepts are separate dimensions)
@@ -180,6 +212,7 @@ function parseObservationBlocks(text: string, correlationId?: string | number): 
 
     observations.push({
       type: finalType,
+      raw_type: rawType,
       title,
       subtitle,
       facts,

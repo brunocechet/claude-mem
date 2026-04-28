@@ -9,6 +9,10 @@ import { logger } from '../../../utils/logger.js';
  */
 export interface ObservationInput {
   type: string;
+  // Original type emitted by the LLM, when it differed from the canonical type after coercion.
+  // NULL means no coercion happened (LLM emitted a valid canonical type directly).
+  // Used for auditing model drift and growing the per-mode synonym table over time.
+  raw_type?: string | null;
   title: string | null;
   subtitle: string | null;
   facts: string[];

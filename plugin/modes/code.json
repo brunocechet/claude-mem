@@ -8,58 +8,67 @@
       "label": "Bug Fix",
       "description": "Something was broken, now fixed",
       "emoji": "🔴",
-      "work_emoji": "🛠️"
+      "work_emoji": "🛠️",
+      "synonyms": ["fix", "bug", "patch", "hotfix", "bug-fix", "bug_fix"]
     },
     {
       "id": "feature",
       "label": "Feature",
       "description": "New capability or functionality added",
       "emoji": "🟣",
-      "work_emoji": "🛠️"
+      "work_emoji": "🛠️",
+      "synonyms": ["new-feature", "addition", "enhancement", "improvement"]
     },
     {
       "id": "refactor",
       "label": "Refactor",
       "description": "Code restructured, behavior unchanged",
       "emoji": "🔄",
-      "work_emoji": "🛠️"
+      "work_emoji": "🛠️",
+      "synonyms": ["refactoring", "restructure", "cleanup", "code-cleanup"]
     },
     {
       "id": "change",
       "label": "Change",
       "description": "Generic modification (docs, config, misc)",
       "emoji": "✅",
-      "work_emoji": "🛠️"
+      "work_emoji": "🛠️",
+      "synonyms": ["modification", "update", "edit", "config-change", "docs-update"]
     },
     {
       "id": "discovery",
       "label": "Discovery",
       "description": "Learning about existing system",
       "emoji": "🔵",
-      "work_emoji": "🔍"
+      "work_emoji": "🔍",
+      "synonyms": ["learning", "investigation", "analysis", "exploration", "research", "evaluation", "evaluation-result", "eval", "eval-result", "metrics", "audit", "review"]
     },
     {
       "id": "decision",
       "label": "Decision",
       "description": "Architectural/design choice with rationale",
       "emoji": "⚖️",
-      "work_emoji": "⚖️"
+      "work_emoji": "⚖️",
+      "synonyms": ["choice", "design-decision", "architecture-decision", "adr", "tradeoff", "trade-off"]
     },
     {
       "id": "security_alert",
       "label": "Security Alert",
       "description": "A security issue that needs attention before continuing.",
       "emoji": "🚨",
-      "work_emoji": "🚨"
+      "work_emoji": "🚨",
+      "synonyms": ["security-issue", "vulnerability", "cve", "security-warning"]
     },
     {
       "id": "security_note",
       "label": "Security Note",
       "description": "A security-relevant observation worth recording, but not urgent.",
       "emoji": "🔐",
-      "work_emoji": "🔐"
+      "work_emoji": "🔐",
+      "synonyms": ["security-observation", "security-note", "security-info"]
     }
   ],
+  "unknown_type_fallback": "discovery",
   "observation_concepts": [
     {
       "id": "how-it-works",

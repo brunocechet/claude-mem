@@ -8,6 +8,12 @@ export interface ObservationType {
   description: string;
   emoji: string;
   work_emoji: string;
+  // Optional: alternate strings the LLM is known to emit that should coerce to this id.
+  // Matched case-insensitively after exact match fails. Lets the closed vocabulary stay
+  // small while absorbing common drift (e.g. ["evaluation-result", "eval", "analysis"]
+  // → discovery). Grow these from the PARSER WARN telemetry over time
+  // (see scripts/synonym-suggestions.mjs).
+  synonyms?: string[];
 }
 
 export interface ObservationConcept {
@@ -69,4 +75,10 @@ export interface ModeConfig {
   observation_types: ObservationType[];
   observation_concepts: ObservationConcept[];
   prompts: ModePrompts;
+  // Optional: id of the observation_type to use when an LLM-emitted type matches
+  // neither a canonical id nor any synonym. If absent, falls back to the first id
+  // in observation_types[] (legacy behavior). Pick the most semantically forgiving
+  // type for your mode (for `code`, "discovery" beats "bugfix" because uncategorized
+  // model output is almost always closer to "I learned something" than "I fixed a bug").
+  unknown_type_fallback?: string;
 }
