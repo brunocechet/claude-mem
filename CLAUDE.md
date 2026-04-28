@@ -89,6 +89,39 @@ Claude-mem is designed with a clean separation between open-source core function
 
 This architecture preserves the open-source nature of the project while enabling sustainable development through optional paid features.
 
+## Observation Type Vocabulary (synonyms + raw_type)
+
+Each mode in [plugin/modes/*.json](plugin/modes/) declares a closed list of `observation_types`. The parser ([src/sdk/parser.ts](src/sdk/parser.ts)) resolves the LLM-emitted type with three steps:
+
+1. **Exact id match** — canonical case, no coercion.
+2. **Synonym match** — case-insensitive lookup against each type's optional `synonyms: string[]` array. Use this to absorb known LLM drift (e.g. `evaluation-result | eval | analysis` → `discovery`).
+3. **`unknown_type_fallback`** — top-level mode field naming the type id to use when nothing matches. Pick the most semantically forgiving id (for `code`, this is `discovery`, not `bugfix` — uncategorized model output is usually closer to "I learned something" than "I fixed a bug").
+
+When coercion happens (steps 2 or 3), the LLM's original string is stored in the `raw_type` column on the observation row (migration v30). NULL means no coercion. Use `raw_type` for auditing model drift and growing the synonym table over time.
+
+**To grow the synonym table:**
+- The parser logs `WARN PARSER Invalid observation type: X, using "Y"` whenever step 3 fires.
+- Run `node scripts/synonym-suggestions.mjs` to surface the most common unknown types from worker logs.
+- Edit the relevant mode's JSON to add the synonym to the appropriate type, or add a brand-new type if there's a real semantic gap.
+
+## File-Context Hook (PreToolUse:Read)
+
+[src/cli/handlers/file-context.ts](src/cli/handlers/file-context.ts) injects a timeline of prior observations when an agent reads a file. For unconstrained reads of >1.5KB files where the timeline is dense AND recent (≥3 obs, ≥1 in last 60 days), the hook **forcibly truncates the Read to line 1** so the agent leans on the timeline. Tune via `MIN_OBS_FOR_TRUNCATION`, `MIN_RECENT_OBS_FOR_TRUNCATION`, `RECENCY_WINDOW_DAYS` constants.
+
+The hook never inserts leading-question framing ("already know enough?") — the agent is the right judge of "enough." It only injects neutral data + a recovery menu when truncation occurs.
+
+**Telemetry**: each invocation appends one JSONL line to `~/.claude-mem/file-context-events.jsonl`. Analyze with:
+- `node scripts/analyze-file-context.mjs --days 30` — terminal report
+- `curl -sS http://127.0.0.1:37777/api/admin/file-context-stats?days=30` — JSON for dashboards
+
+Tune the gate constants based on `reread_rate`: if >50%, the timeline isn't satisfying agents and the gate is too aggressive; if <15%, the gate may be too conservative and could truncate more.
+
+## Auto-Update Recovery (lessons from 2026-04-25)
+
+The marketplace plugin updater (12.3.9 → 12.4.4) rsynced upstream files **through a symlinked marketplace dir into this repo**, leaving conflict markers across ~6 files and silently overwriting all uncommitted edits. Recovery required manual conflict resolution + re-applying ~10 files of work.
+
+**Prevention**: do NOT symlink `~/.claude/plugins/marketplaces/thedotmack` to this repo. The marketplace dir should be a normal directory the updater owns. Use `npm run build-dev` (which runs `sync-marketplace:force`) to push from this repo into the marketplace dir explicitly. After every meaningful edit, **commit immediately** — uncommitted work is at risk if the updater fires.
+
 ## Important
 
 No need to edit the changelog ever, it's generated automatically.
